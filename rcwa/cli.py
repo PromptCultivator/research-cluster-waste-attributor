@@ -47,6 +47,7 @@ def version() -> None:
 def synth(
     size: Annotated[str, typer.Option("--size", help="Trace size, e.g. 20k, 1M.")] = "20k",
     seed: Annotated[int, typer.Option("--seed", help="Random seed for reproducibility.")] = 1,
+    runs: Annotated[int, typer.Option("--runs", help="Number of benchmark iterations.")] = 1,
     faults: Annotated[str, typer.Option("--faults", help="Fault generation profile.")] = "default",
     output: Annotated[
         Path | None,
@@ -56,13 +57,23 @@ def synth(
     """Generate a synthetic trace with planted waste categories."""
     destination = str(output) if output else "stdout"
     typer.echo(
-        f"Synthesizing trace: size={size}, seed={seed}, faults={faults}, output={destination}"
+        f"Synthesizing trace: size={size}, seed={seed}, runs={runs}, "
+        f"faults={faults}, output={destination}"
     )
 
 
 @app.command()
 def ingest(
-    trace: Annotated[Path, typer.Argument(help="Path to sacct or SWF accounting trace.")],
+    trace: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to sacct or SWF accounting trace.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
     format: Annotated[
         str,
         typer.Option("--format", "-f", help="Trace input format (sacct, swf, auto)."),
@@ -78,10 +89,27 @@ def ingest(
 
 @app.command()
 def attribute(
-    trace: Annotated[Path, typer.Argument(help="Canonical trace path.")],
+    trace: Annotated[
+        Path,
+        typer.Argument(
+            help="Canonical trace path.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
     policy: Annotated[
         Path,
-        typer.Option("--policy", "-p", help="Attribution policy file path."),
+        typer.Option(
+            "--policy",
+            "-p",
+            help="Attribution policy file path.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = Path("policies/default.yaml"),
     output: Annotated[
         Path | None,
@@ -94,10 +122,27 @@ def attribute(
 
 @app.command()
 def recommend(
-    attributed: Annotated[Path, typer.Argument(help="Attributed records Parquet file.")],
+    attributed: Annotated[
+        Path,
+        typer.Argument(
+            help="Attributed records Parquet file.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
     policy: Annotated[
         Path,
-        typer.Option("--policy", "-p", help="Rightsizing policy file path."),
+        typer.Option(
+            "--policy",
+            "-p",
+            help="Rightsizing policy file path.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = Path("policies/default.yaml"),
     output: Annotated[
         Path | None,
@@ -110,10 +155,27 @@ def recommend(
 
 @app.command()
 def simulate(
-    trace: Annotated[Path, typer.Argument(help="Canonical trace path.")],
+    trace: Annotated[
+        Path,
+        typer.Argument(
+            help="Canonical trace path.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
     cluster: Annotated[
         Path,
-        typer.Option("--cluster", "-c", help="Cluster configuration YAML."),
+        typer.Option(
+            "--cluster",
+            "-c",
+            help="Cluster configuration YAML.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = Path("clusters/example.yaml"),
     scenario: Annotated[
         str,
@@ -136,11 +198,25 @@ def simulate(
 def calibrate(
     trace: Annotated[
         Path | None,
-        typer.Argument(help="Trace file path for calibration against recorded wait times."),
+        typer.Argument(
+            help="Trace file path for calibration against recorded wait times.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = None,
     cluster: Annotated[
         Path,
-        typer.Option("--cluster", "-c", help="Cluster configuration YAML."),
+        typer.Option(
+            "--cluster",
+            "-c",
+            help="Cluster configuration YAML.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = Path("clusters/example.yaml"),
     output: Annotated[
         Path | None,
@@ -156,7 +232,13 @@ def calibrate(
 def report(
     trace: Annotated[
         Path | None,
-        typer.Argument(help="Path to attributed or simulated trace results."),
+        typer.Argument(
+            help="Path to attributed or simulated trace results.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = None,
     format: Annotated[
         str,
@@ -176,15 +258,37 @@ def report(
 def run(
     trace: Annotated[
         Path | None,
-        typer.Argument(help="Trace path to process end-to-end."),
+        typer.Argument(
+            help="Trace path to process end-to-end.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = None,
     cluster: Annotated[
         Path,
-        typer.Option("--cluster", "-c", help="Cluster configuration YAML."),
+        typer.Option(
+            "--cluster",
+            "-c",
+            help="Cluster configuration YAML.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = Path("clusters/example.yaml"),
     policy: Annotated[
         Path,
-        typer.Option("--policy", "-p", help="Policy configuration YAML."),
+        typer.Option(
+            "--policy",
+            "-p",
+            help="Policy configuration YAML.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
     ] = Path("policies/default.yaml"),
     output_dir: Annotated[
         Path,

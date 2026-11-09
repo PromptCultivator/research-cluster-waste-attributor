@@ -4,4 +4,10 @@ results/
 *.parquet
 *.arrow
 *.swf
+*.swf.gz
+*.gz
+*.tar.gz
+sacct_export.txt
+*.txt
+*.json
 *.csv

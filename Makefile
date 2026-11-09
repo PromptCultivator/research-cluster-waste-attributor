@@ -32,18 +32,18 @@ synth:
 	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --faults default
 
 run:
-	$(PYTHON) -m rcwa.cli run $(TRACE)
+	$(PYTHON) -m rcwa.cli run "$(TRACE)"
 
 calibrate:
 	$(PYTHON) -m rcwa.cli calibrate
 
 bench:
-	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED)
+	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --runs $(RUNS)
 
 bench-smoke:
 	$(PYTHON) -m rcwa.cli version
 	$(PYTHON) -m rcwa.wrap --version
-	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED)
+	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --runs $(RUNS)
 
 goldens:
 	@echo "Golden diff verification target (Phase 6)"

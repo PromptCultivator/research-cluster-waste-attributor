@@ -202,8 +202,15 @@ def run_wrap(
 
     record_hash(digest)
 
-    result = subprocess.run(command_tokens)
-    raise typer.Exit(code=result.returncode)
+    try:
+        result = subprocess.run(command_tokens)
+        raise typer.Exit(code=result.returncode)
+    except FileNotFoundError:
+        typer.echo(f"rcwa-wrap: command not found: {command_tokens[0]}", err=True)
+        raise typer.Exit(code=127)
+    except PermissionError:
+        typer.echo(f"rcwa-wrap: permission denied: {command_tokens[0]}", err=True)
+        raise typer.Exit(code=126)
 
 
 def main() -> None:

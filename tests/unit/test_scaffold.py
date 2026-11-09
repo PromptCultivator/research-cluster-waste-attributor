@@ -1,5 +1,6 @@
 """Scaffold and baseline functionality tests for rcwa package."""
 
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -37,30 +38,33 @@ def test_cli_version_callback_noop() -> None:
     assert cli.version_callback(False) is None
 
 
-def test_cli_subcommands_execution() -> None:
-    """Verify execution of all CLI subcommands."""
+def test_cli_subcommands_execution(tmp_path: Path) -> None:
+    """Verify execution of all CLI subcommands with valid arguments."""
+    dummy_file = tmp_path / "dummy_trace.txt"
+    dummy_file.write_text("sample trace payload", encoding="utf-8")
+
     # synth
-    res = runner.invoke(cli.app, ["synth", "--size", "10k", "--seed", "42"])
+    res = runner.invoke(cli.app, ["synth", "--size", "10k", "--seed", "42", "--runs", "1"])
     assert res.exit_code == 0
     assert "Synthesizing trace" in res.stdout
 
     # ingest
-    res = runner.invoke(cli.app, ["ingest", "test_trace.sacct", "--format", "sacct"])
+    res = runner.invoke(cli.app, ["ingest", str(dummy_file), "--format", "sacct"])
     assert res.exit_code == 0
     assert "Ingesting trace" in res.stdout
 
     # attribute
-    res = runner.invoke(cli.app, ["attribute", "canonical.parquet"])
+    res = runner.invoke(cli.app, ["attribute", str(dummy_file)])
     assert res.exit_code == 0
     assert "Attributing waste" in res.stdout
 
     # recommend
-    res = runner.invoke(cli.app, ["recommend", "attributed.parquet"])
+    res = runner.invoke(cli.app, ["recommend", str(dummy_file)])
     assert res.exit_code == 0
     assert "Generating recommendations" in res.stdout
 
     # simulate
-    res = runner.invoke(cli.app, ["simulate", "canonical.parquet", "--scenario", "baseline"])
+    res = runner.invoke(cli.app, ["simulate", str(dummy_file), "--scenario", "baseline"])
     assert res.exit_code == 0
     assert "Simulating trace" in res.stdout
 
@@ -75,9 +79,42 @@ def test_cli_subcommands_execution() -> None:
     assert "Reporting results" in res.stdout
 
     # run
-    res = runner.invoke(cli.app, ["run", "workload.swf"])
+    res = runner.invoke(cli.app, ["run", str(dummy_file)])
     assert res.exit_code == 0
     assert "Executing pipeline" in res.stdout
+
+
+def test_cli_subcommands_help() -> None:
+    """Verify --help succeeds on all subcommands including those with positional arguments."""
+    for cmd in [
+        "ingest",
+        "attribute",
+        "recommend",
+        "simulate",
+        "calibrate",
+        "report",
+        "run",
+        "synth",
+    ]:
+        res = runner.invoke(cli.app, [cmd, "--help"])
+        assert res.exit_code == 0
+        assert f"Usage: rcwa {cmd}" in res.output
+
+
+def test_cli_subcommands_missing_required_arguments() -> None:
+    """Verify missing required positional arguments fail with exit status 2."""
+    for cmd in ["ingest", "attribute", "recommend", "simulate"]:
+        res = runner.invoke(cli.app, [cmd])
+        assert res.exit_code == 2
+        assert "Missing argument" in res.output
+
+
+def test_cli_subcommands_nonexistent_paths() -> None:
+    """Verify passing non-existent file paths fails validation with exit code 2."""
+    res = runner.invoke(cli.app, ["ingest", "definitely_nonexistent_path_xyz.sacct"])
+    assert res.exit_code == 2
+    assert "Invalid value for 'TRACE'" in res.output
+    assert "not exist" in res.output
 
 
 def test_wrap_version() -> None:
@@ -164,6 +201,25 @@ def test_wrap_execution_command_run() -> None:
     assert result.exit_code == 0
 
 
+def test_wrap_command_not_found() -> None:
+    """Verify rcwa-wrap reports informative message and exits with 127 when binary is missing."""
+    res = runner.invoke(wrap.app, ["--", "nonexistent_binary_xyz_12345"])
+    assert res.exit_code == 127
+    assert "rcwa-wrap: command not found" in res.output
+
+
+def test_wrap_permission_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify rcwa-wrap handles PermissionError with exit status 126."""
+
+    def mock_run(*args: object, **kwargs: object) -> None:
+        raise PermissionError("Permission denied")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    res = runner.invoke(wrap.app, ["--", "non_executable_script"])
+    assert res.exit_code == 126
+    assert "rcwa-wrap: permission denied" in res.output
+
+
 def test_policy_yaml_load() -> None:
     """Verify policies/default.yaml contains valid configuration keys."""
     policy_path = Path("policies/default.yaml")
@@ -230,3 +286,16 @@ def test_wrap_execution_with_inputs_and_flags(tmp_path: Path) -> None:
         ],
     )
     assert result.exit_code == 0
+
+
+def test_data_gitignore_patterns() -> None:
+    """Verify data/.gitignore ignores expected trace and artifact extensions."""
+    data_gitignore = Path("data/.gitignore")
+    assert data_gitignore.exists()
+    content = data_gitignore.read_text(encoding="utf-8")
+    assert "*.swf.gz" in content
+    assert "*.gz" in content
+    assert "*.tar.gz" in content
+    assert "sacct_export.txt" in content
+    assert "*.parquet" in content
+    assert "*.arrow" in content
