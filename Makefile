@@ -32,7 +32,7 @@ synth:
 	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --faults default
 
 run:
-	$(PYTHON) -m rcwa.cli run "$(TRACE)"
+	$(PYTHON) -m rcwa.cli run $(if $(TRACE),"$(TRACE)")
 
 calibrate:
 	$(PYTHON) -m rcwa.cli calibrate

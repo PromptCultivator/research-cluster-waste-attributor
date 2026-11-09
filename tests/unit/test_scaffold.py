@@ -84,6 +84,13 @@ def test_cli_subcommands_execution(tmp_path: Path) -> None:
     assert "Executing pipeline" in res.stdout
 
 
+def test_cli_run_without_trace() -> None:
+    """Verify rcwa run succeeds when trace is omitted (default synthetic trace mode)."""
+    res = runner.invoke(cli.app, ["run"])
+    assert res.exit_code == 0
+    assert "Executing pipeline on default synthetic workload" in res.stdout
+
+
 def test_cli_subcommands_help() -> None:
     """Verify --help succeeds on all subcommands including those with positional arguments."""
     for cmd in [
