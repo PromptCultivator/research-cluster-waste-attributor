@@ -142,6 +142,9 @@ def parse_slurm_memory_mb(
     except ValueError:
         return None
 
+    if num < 0:
+        return None
+
     if unit == "K":
         base_mb = num / 1024.0
     elif unit == "M":
@@ -153,7 +156,7 @@ def parse_slurm_memory_mb(
     elif unit == "P":
         base_mb = num * 1024.0 * 1024.0 * 1024.0
     else:
-        base_mb = num
+        return None
 
     if per_cpu:
         total_mb = base_mb * max(1, alloc_cpus)
@@ -184,6 +187,9 @@ def parse_slurm_memory_rss_mb(val: str | None) -> int | None:
     except ValueError:
         return None
 
+    if num < 0:
+        return None
+
     if unit == "K":
         return int(round(num / 1024.0))
     elif unit == "M":
@@ -192,7 +198,9 @@ def parse_slurm_memory_rss_mb(val: str | None) -> int | None:
         return int(round(num * 1024.0))
     elif unit == "T":
         return int(round(num * 1024.0 * 1024.0))
-    return int(round(num))
+    elif unit == "P":
+        return int(round(num * 1024.0 * 1024.0 * 1024.0))
+    return None
 
 
 def map_slurm_state(raw_state: str | None) -> str:

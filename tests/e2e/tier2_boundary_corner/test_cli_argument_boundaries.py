@@ -20,10 +20,12 @@ from tests.e2e.conftest import CLIResult
     [
         ("ingest", ["non_existent_file.txt"], 2),                           # File not found
         ("ingest", ["--unsupported-flag"], 2),                              # Unsupported option
+        ("ingest", ["tests/fixtures/edge/empty_file.txt", "--format", "unsupported_fmt"], 2),  # Unsupported format
         ("attribute", ["non_existent_file.txt"], 2),                        # File not found
         ("recommend", ["non_existent_file.parquet"], 2),                    # File not found
         ("simulate", ["non_existent_trace.swf"], 2),                        # Non-existent trace
         ("report", ["non_existent_results.parquet"], 2),                    # Non-existent input
+        ("report", ["--format", "unsupported_fmt"], 2),                     # Unsupported report format
     ],
 )
 def test_boundary_cli_invalid_arguments_rejected(

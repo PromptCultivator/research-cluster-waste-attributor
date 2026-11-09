@@ -5,9 +5,9 @@
 The end-to-end (E2E) opaque-box test suite for `research-cluster-waste-attributor` is established and verified. The test harness discovers and parameterizes all feature scenarios without collection errors.
 
 - **Test Suite Status**: READY FOR CONTINUOUS VERIFICATION
-- **Total E2E Test Invocations Collected**: 610
+- **Total E2E Test Invocations Collected**: 608
 - **Required Minimum Threshold**: 563 (calculated as $11 \times N + \max(5, \lfloor N/2 \rfloor) = 11 \times 49 + 24 = 563$ for $N=49$ features)
-- **Margin Over Threshold**: +47 tests (+8.3%)
+- **Margin Over Threshold**: +45 tests (+8.0%)
 - **Syntax and Discovery Errors**: 0
 
 ---
@@ -58,7 +58,7 @@ The test suite exercises opaque-box system properties as features land across de
 | **M4** | Recomputation & Wrap | `test_f29_f34_wrap_recompute.py`, `test_wrap_tolerance_boundaries.py`, `test_int02_wrap_sidecar_class4.py` | PASS 50+ hashing and Class 4 attribution tests |
 | **M5** | Simulator & Calibration | `test_f35_f40_simulator_calibration_g4.py`, `test_int05_easy_backfill_scenarios.py`, `test_int06_calibration_spearman_mae.py`, `test_guarantee_g4_simulation_validity_suite.py` | PASS 75+ EASY-backfill and G4 validity tests |
 | **M6** | Reports & Determinism G3 | `test_f41_f44_reports_determinism_g3.py`, `test_guarantee_g3_determinism_suite.py`, `test_int07_full_pipeline_determinism.py` | PASS 50+ multi-format and G3 determinism tests |
-| **M7** | End-to-End Traces | `test_cli_workflow_e2e.py`, `test_multiday_cluster_workload.py`, `test_degraded_data_resilience.py` | PASS 100% of all 610 test cases |
+| **M7** | End-to-End Traces | `test_cli_workflow_e2e.py`, `test_multiday_cluster_workload.py`, `test_degraded_data_resilience.py` | PASS 100% of all 608 test cases |
 
 ---
 
@@ -66,11 +66,11 @@ The test suite exercises opaque-box system properties as features land across de
 
 | Tier / Directory | Primary Purpose | Test Modules | Test Count |
 |---|---|---|---|
-| **Tier 1** | Feature Coverage (F4 - F44) | 7 modules | 343 |
+| **Tier 1** | Feature Coverage (F4 - F44) | 7 modules | 341 |
 | **Tier 2** | Boundary & Corner Cases | 6 modules | 90 |
 | **Tier 3** | Cross-Feature Integrations (INT-01 to INT-08) | 8 modules | 38 |
 | **Tier 4** | Real-World Traces & Guarantees (G1 - G4) | 7 modules | 139 |
-| **Total** | Complete E2E Test Suite | 28 modules | **610** |
+| **Total** | Complete E2E Test Suite | 28 modules | **608** |
 
 ---
 

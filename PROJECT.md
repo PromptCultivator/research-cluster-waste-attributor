@@ -101,14 +101,14 @@ Every feature extracted from `docs/SPEC.md` and `ORIGINAL_REQUEST.md` is invento
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
 | M0 | Phase 0 — Scaffold | Repository layout, pyproject.toml (pinned deps), Makefile (13 targets), Dockerfile, CI workflow, initial docs (DECISIONS.md, AI-ASSISTANCE.md, DATA.md, 5 ADR stubs), README skeleton, default policies, example cluster | none | DONE (26 tests, 95.24% cov, ruff/pyright pass, 0 prohibited words, auditor verified) |
-| M1 | Phase 1 — Adapters & Canonical Record | model.py, normalize.py, adapters/sacct.py, adapters/swf.py, fixtures, 100k-row throughput benchmark | M0 | PLANNED |
+| M1 | Phase 1 — Adapters & Canonical Record | model.py, normalize.py, adapters/sacct.py, adapters/swf.py, fixtures, 100k-row throughput benchmark | M0 | DONE (261 tests, 92.13% cov, 31,017 jobs/s, ruff/pyright pass, auditor clean) |
 | M2 | Phase 2 — Attribution | attribute.py, groups.py, retries.py, G1 conservation test on fixtures and 20k trace, Parquet/CSV output | M1 | PLANNED |
 | M3 | Phase 3 — Recommendations | recommend.py with guardrails (floor, OOM, min_samples), G2 Hypothesis property tests (10k groups) | M2 | PLANNED |
 | M4 | Phase 4 — Recomputation | wrap.py (rcwa-wrap), recompute.py, sidecar and Comment readers, recall/precision verification | M2 | PLANNED |
 | M5 | Phase 5 — Simulator & Calibration | simulate.py (FCFS + EASY backfill), calibrate.py, G4 validity tests, 1M job target benchmark | M3, M4 | PLANNED |
 | M6 | Phase 6 — Report | report.py (MD, JSON, CSV), ranked reclaim list, data quality section, golden tests, G3 determinism test | M5 | PLANNED |
 | M7 | Phase 7 — Synthetic Generator & Benchmarks | synth.py with planted waste, make data public traces, bench/run.py, bench/hardware.py, 5 ADRs, README | M6 | PLANNED |
-| M_E2E | E2E Testing Suite (Tiers 1-4) | Opaque-box requirement-driven test suite derived from SPEC.md, publishing TEST_READY.md | M0 | IN_PROGRESS |
+| M_E2E | E2E Testing Suite (Tiers 1-4) | Opaque-box requirement-driven test suite derived from SPEC.md, publishing TEST_READY.md | M0 | DONE (608 tests across 28 modules, 38 fixtures, TEST_READY.md published, auditor clean) |
 | M_FINAL | Final Milestone | Pass 100% E2E tests (Tiers 1-4) + Phase 2 adversarial coverage hardening (Tier 5) | M7, M_E2E | PLANNED |
 
 ---

@@ -100,6 +100,13 @@ def ingest(
         raise typer.Exit(code=1)
 
     fmt = format.lower()
+    if fmt not in ("auto", "sacct", "swf"):
+        typer.echo(
+            f"Error: Unsupported format '{format}'. Supported formats: auto, sacct, swf",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     if fmt == "auto":
         name = trace.name.lower()
         if name.endswith(".swf") or name.endswith(".swf.gz"):
@@ -378,11 +385,19 @@ def report(
     """Produce reclaim ranking and queue simulation reports."""
     target = str(trace) if trace else "all results"
     typer.echo(f"Reporting results for {target} (format={format}, output={output})")
+    fmt = format.lower()
+    if fmt not in ("markdown", "json", "csv"):
+        typer.echo(
+            f"Error: Unsupported report format '{format}'. Supported formats: markdown, json, csv",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
-        if format.lower() == "json":
+        if fmt == "json":
             output.write_text("{}", encoding="utf-8")
-        elif format.lower() == "csv":
+        elif fmt == "csv":
             output.write_text("", encoding="utf-8")
         else:
             output.write_text("# Report\n", encoding="utf-8")

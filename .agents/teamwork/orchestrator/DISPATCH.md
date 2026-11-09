@@ -36,3 +36,17 @@ CRITICAL ALERT FROM PARENT AGENT:
    - Halt/pause Phase 1 execution.
    - Deliver the Phase 0 report formatted strictly per Section 15 of `docs/SPEC.md`.
    - Wait for explicit human confirmation before beginning Phase 1.
+
+## 2026-11-09T23:06:42Z
+Sender: a50a7a419c17730508cf1f5e3b2b878e (Parent)
+Priority: MESSAGE_PRIORITY_HIGH
+
+The user has confirmed to proceed. Please execute Phase 1 (Adapters and Canonical Record) per SPEC §14.
+
+Requirements for Phase 1:
+- Implement `model.py`, `normalize.py`, `adapters/sacct.py`, `adapters/swf.py`.
+- Ensure fixtures cover every parser requirement in SPEC §5.
+- Acceptance criteria: all parser tests pass; measure and report jobs/s for a 100,000-row synthetic sacct export.
+- Run the full test suite (`make test`), lint (`make lint`), and typecheck (`make typecheck`).
+- Stop at the end of Phase 1 and report using the format in Section 15.
+- Do not begin Phase 2 without explicit user confirmation.
