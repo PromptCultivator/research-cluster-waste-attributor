@@ -1,0 +1,12 @@
+group_key:
+  - user
+  - command_hash_or_job_name
+min_samples: 10
+safety_factor: 1.5
+retry_window_seconds: 43200
+recompute_window_seconds: 1209600
+short_job_threshold_seconds: 180
+early_failure_threshold_seconds: 60
+timeout_safety_factor: 2.0
+oom_escalation_factor: 2.0
+mem_weight_core_hours_per_gb_hour: 0.50

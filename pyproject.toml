@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "research-cluster-waste-attributor"
+version = "0.1.0"
+description = "Batch-scheduler accounting waste attribution and simulation for research compute clusters"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "PromptCultivator" }
+]
+dependencies = [
+    "polars==1.14.0",
+    "pyarrow==18.1.0",
+    "numpy==2.1.3",
+    "pydantic==2.10.3",
+    "typer==0.15.1",
+    "pyyaml==6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-cov==6.0.0",
+    "hypothesis==6.120.0",
+    "ruff==0.8.2",
+    "pyright==1.1.390",
+]
+
+[project.scripts]
+rcwa = "rcwa.cli:app"
+rcwa-wrap = "rcwa.wrap:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rcwa*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["tests/e2e"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["rcwa", "tests"]
+exclude = ["tests/e2e", "**/__pycache__"]
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--ignore=tests/e2e --cov=rcwa --cov-report=term-missing --cov-fail-under=85"
+
+[tool.coverage.run]
+branch = true
+source = ["rcwa"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true

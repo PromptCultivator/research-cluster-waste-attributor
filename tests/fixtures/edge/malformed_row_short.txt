@@ -1,0 +1,3 @@
+JobIDRaw|JobID|User|Account|Partition|QOS|JobName|Submit|Eligible|Start|End|Elapsed|State|ExitCode|ReqCPUS|AllocCPUS|ReqMem|MaxRSS|AveRSS|TotalCPU|CPUTimeRAW|ReqTRES|AllocTRES|NodeList|Comment|SubmitLine
+1301|1301|alice|quant_research|compute|normal|truncated_row|2026-03-01T10:00:00|2026-03-01T10:00:05
+1302|1302|bob|quant_research|compute

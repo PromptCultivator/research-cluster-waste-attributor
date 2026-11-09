@@ -1,0 +1,15 @@
+name: heterogeneous_cluster
+partitions:
+  compute:
+    nodes: 32
+    cores_per_node: 64
+    mem_mb_per_node: 262144
+  fatmem:
+    nodes: 8
+    cores_per_node: 64
+    mem_mb_per_node: 1048576
+  gpu:
+    nodes: 16
+    cores_per_node: 64
+    mem_mb_per_node: 524288
+    gpus_per_node: 4

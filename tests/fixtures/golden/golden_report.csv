@@ -1,0 +1,4 @@
+rank,group,count,reclaim_core_hours,reclaim_gb_hours,score,recommendation_action,evidence_job_ids
+1,alice/alpha_train,3,12.00,54.00,25.50,decrease_req_mem_and_cpu,"10001;10007;10018"
+2,david/order_book_proc,3,4.00,48.00,16.00,oom_increase_mem,"10005;10006;10020"
+3,carol/sim_portfolio,2,8.00,24.00,14.00,below_sample_floor,"10004;10013"

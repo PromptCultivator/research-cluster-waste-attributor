@@ -1,0 +1,4 @@
+name: homogeneous_cluster
+nodes: 16
+cores_per_node: 32
+mem_mb_per_node: 131072

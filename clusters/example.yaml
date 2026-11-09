@@ -1,0 +1,10 @@
+# Example Cluster Specification
+
+cluster_name: "example"
+node_count: 64
+cores_per_node: 32
+mem_mb_per_node: 131072
+core_to_mem_ratio: 0.25
+nodes:
+  prefix: "node"
+  pad_width: 3

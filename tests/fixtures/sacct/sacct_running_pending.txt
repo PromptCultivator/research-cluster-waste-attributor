@@ -1,0 +1,4 @@
+JobIDRaw|JobID|User|Account|Partition|QOS|JobName|Submit|Eligible|Start|End|Elapsed|State|ExitCode|ReqCPUS|AllocCPUS|ReqMem|MaxRSS|AveRSS|TotalCPU|CPUTimeRAW|ReqTRES|AllocTRES|NodeList|Comment|SubmitLine
+1101|1101|alice|quant_research|compute|normal|active_run|2026-03-01T10:00:00|2026-03-01T10:00:02|2026-03-01T10:00:05|Unknown|00:45:00|RUNNING|0:0|4|4|8000M|3200M|3000M|02:10:00|10800|billing=4,cpu=4,mem=8000M,node=1|billing=4,cpu=4,mem=8000M,node=1|node-01||sbatch run.sh
+1102|1102|bob|quant_research|compute|normal|waiting_job|2026-03-01T10:30:00|2026-03-01T10:30:00|Unknown|Unknown|00:00:00|PENDING|0:0|8|8|16000M|||00:00:00|0|billing=8,cpu=8,mem=16000M,node=1||||sbatch wait.sh
+1103|1103|carol|execution_eng|compute|normal|done_job|2026-03-01T09:00:00|2026-03-01T09:00:01|2026-03-01T09:00:05|2026-03-01T09:30:05|00:30:00|COMPLETED|0:0|4|4|8000M|2000M|1900M|01:00:00|7200|billing=4,cpu=4,mem=8000M,node=1|billing=4,cpu=4,mem=8000M,node=1|node-02||sbatch done.sh

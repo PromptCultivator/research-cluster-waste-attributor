@@ -1,0 +1,7 @@
+raw/
+out/
+results/
+*.parquet
+*.arrow
+*.swf
+*.csv

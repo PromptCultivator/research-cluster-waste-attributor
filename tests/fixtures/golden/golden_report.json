@@ -1,0 +1,111 @@
+{
+  "summary": {
+    "total_jobs": 20,
+    "evaluated_jobs": 18,
+    "excluded_jobs": 2,
+    "total_reserved_core_hours": 120.0,
+    "total_used_core_hours": 68.5,
+    "total_reserved_gb_hours": 480.0,
+    "total_used_gb_hours": 215.2
+  },
+  "waste_classification": {
+    "class1_memory_over_request_gb_hours": 194.8,
+    "class2_idle_cpu_core_hours": 32.5,
+    "class3_failed_work_core_hours": 15.0,
+    "class3_failed_work_gb_hours": 60.0,
+    "class4_redundant_core_hours": 4.0,
+    "class4_redundant_gb_hours": 10.0,
+    "unattributed_cpu_core_hours": 0.0,
+    "unattributed_memory_gb_hours": 0.0
+  },
+  "ranked_reclaim_list": [
+    {
+      "rank": 1,
+      "group": "alice/alpha_train",
+      "count": 3,
+      "reclaim_core_hours": 12.0,
+      "reclaim_gb_hours": 54.0,
+      "score": 25.5,
+      "recommendation": {
+        "req_mem_mb": 17040,
+        "cpus": 7,
+        "direction": "decrease"
+      },
+      "evidence_job_ids": ["10001", "10007", "10018"]
+    },
+    {
+      "rank": 2,
+      "group": "david/order_book_proc",
+      "count": 3,
+      "reclaim_core_hours": 4.0,
+      "reclaim_gb_hours": 48.0,
+      "score": 16.0,
+      "recommendation": {
+        "req_mem_mb": 69000,
+        "cpus": 8,
+        "direction": "increase"
+      },
+      "evidence_job_ids": ["10005", "10006", "10020"]
+    }
+  ],
+  "data_quality": {
+    "excluded_active_count": 2,
+    "unattributed_cpu_share_pct": 0.0,
+    "unattributed_memory_share_pct": 0.0,
+    "declared_input_coverage_pct": 65.0
+  },
+  "simulation_scenarios": {
+    "baseline": {
+      "median_wait_s": 12.0,
+      "p95_wait_s": 45.0,
+      "makespan_s": 518400,
+      "core_utilization_pct": 62.4,
+      "memory_utilization_pct": 54.1,
+      "jobs_per_day": 2.57
+    },
+    "mem_rightsized": {
+      "median_wait_s": 8.0,
+      "p95_wait_s": 32.0,
+      "makespan_s": 482000,
+      "core_utilization_pct": 67.1,
+      "memory_utilization_pct": 76.5,
+      "jobs_per_day": 2.76
+    },
+    "cpu_rightsized_none": {
+      "median_wait_s": 7.0,
+      "p95_wait_s": 28.0,
+      "makespan_s": 460000,
+      "core_utilization_pct": 78.3,
+      "memory_utilization_pct": 75.8,
+      "jobs_per_day": 2.89
+    },
+    "cpu_rightsized_proportional": {
+      "median_wait_s": 9.0,
+      "p95_wait_s": 35.0,
+      "makespan_s": 490000,
+      "core_utilization_pct": 73.5,
+      "memory_utilization_pct": 72.0,
+      "jobs_per_day": 2.72
+    },
+    "cache_dedup": {
+      "median_wait_s": 10.0,
+      "p95_wait_s": 38.0,
+      "makespan_s": 495000,
+      "core_utilization_pct": 65.0,
+      "memory_utilization_pct": 56.0,
+      "jobs_per_day": 2.69
+    },
+    "all": {
+      "median_wait_s": 5.0,
+      "p95_wait_s": 20.0,
+      "makespan_s": 410000,
+      "core_utilization_pct": 82.5,
+      "memory_utilization_pct": 85.0,
+      "jobs_per_day": 3.24
+    }
+  },
+  "calibration": {
+    "median_absolute_error_s": 4.5,
+    "spearman_rank_correlation": 0.892
+  }
+}

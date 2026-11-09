@@ -1,0 +1,3 @@
+JobIDRaw|JobID|User|Account|Partition|QOS|JobName|Submit|Eligible|Start|End|Elapsed|State|ExitCode|ReqCPUS|AllocCPUS|ReqMem|MaxRSS|AveRSS|TotalCPU|CPUTimeRAW|ReqTRES|AllocTRES|NodeList|Comment|SubmitLine
+1401|1401|alice|quant_research|compute|normal|inverted_dates|2026-03-01T10:00:00|2026-03-01T10:00:02|2026-03-01T12:00:00|2026-03-01T10:00:00|00:30:00|COMPLETED|0:0|4|4|8000M|2000M|1800M|01:00:00|7200|billing=4,cpu=4,mem=8000M,node=1|billing=4,cpu=4,mem=8000M,node=1|node-01||sbatch run.sh
+1402|1402|bob|quant_research|compute|normal|bad_date_str|not-a-timestamp|2026-03-01T10:00:02|2026-99-99T99:99:99|invalid_end|00:30:00|COMPLETED|0:0|4|4|8000M|2000M|1800M|01:00:00|7200|billing=4,cpu=4,mem=8000M,node=1|billing=4,cpu=4,mem=8000M,node=1|node-02||sbatch run.sh
