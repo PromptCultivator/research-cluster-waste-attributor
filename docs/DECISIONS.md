@@ -33,3 +33,12 @@ This document records technical decisions made during implementation where choic
 - **Decision**: Isolate large downloaded workloads to gitignored directories (`data/raw/`, `data/out/`, `data/results/`) while committing small synthetic fixtures to `tests/fixtures/`.
 - **Rationale**: Tests must execute without internet access (SPEC §1 rule 5). Raw trace downloads are confined strictly to explicit execution of `make data`.
 - **Guarantee Maintained**: Guarantee G3 (Determinism) and zero-network test suite execution.
+
+---
+
+### DEC-005: Click 8.5.1 Compatibility Bridges
+- **Date**: 2026-11-09
+- **Decision**: Implement compatibility bridges in `rcwa/__init__.py` for Click 8.5.1 parameter validation and metavar rendering.
+- **Rationale**: Click 8.5.1 changed parameter missing validation to use an internal `UNSET` sentinel rather than `None`, causing Typer arguments defaulting to `None` to bypass missing-value errors. In addition, Click 8.5.1 requires `ctx` in `Parameter.make_metavar`. The compatibility shims ensure required Typer arguments raise `MissingParameter` when omitted and metavars render even when no active Click context exists.
+- **Guarantee Maintained**: CLI interface correctness and automated test validation.
+

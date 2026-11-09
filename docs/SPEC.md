@@ -244,7 +244,7 @@ Do not use the words "simply", "robust", "seamless", "best", "optimal", "clean",
 
 ## 14. Phased delivery
 
-Each phase ends with all tests green, lint and typecheck clean, a commit, and a report (section 15).
+Each phase ends with all tests green, lint and typecheck passing, a commit, and a report (section 15).
 
 - **Phase 0 — Scaffold.** Layout, `pyproject.toml` (pinned deps, `license = "Apache-2.0"`, console scripts), `LICENSE` with the current year and the owner's name (ask if not given), Makefile, Dockerfile, CI workflow, README skeleton with `TBD` placeholders, `docs/DECISIONS.md`, `docs/AI-ASSISTANCE.md`, `docs/DATA.md` (empty template), ADR files with titles, `policies/default.yaml`, `clusters/example.yaml`. Acceptance: `make test` passes on a trivial test; CI config validates.
 - **Phase 1 — Adapters and canonical record.** `model.py`, `normalize.py`, `adapters/sacct.py`, `adapters/swf.py`, fixtures covering every parser requirement in section 5. Acceptance: all parser tests pass; a 100,000-row synthetic sacct export parses at a measured jobs/s you report.
@@ -269,7 +269,7 @@ At the end of each phase, report in this order and nothing else:
 
 ## 16. Definition of done
 
-- `git clone`, `make setup`, `make test` pass on a clean machine in under 10 minutes with no network beyond package installation.
+- `git clone`, `make setup`, `make test` pass on a fresh machine in under 10 minutes with no network beyond package installation.
 - `make data && make run TRACE=data/raw/<trace>.swf` produces a report with a ranked reclaim list and scenario table on a real public trace, with calibration error stated.
 - An `sacct` export in the documented format runs through the same command.
 - README results contain numbers only from `bench/results/` runs on the hardware named in the README.

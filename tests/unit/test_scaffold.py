@@ -256,10 +256,33 @@ def test_cluster_yaml_load() -> None:
 def test_click_compat_make_metavar() -> None:
     """Verify Click make_metavar compatibility bridge handles missing context."""
     import click
+    import typer.core
 
     opt = click.Option(["--test-option"], help="Test option")
     metavar = opt.make_metavar()  # pyright: ignore[reportCallIssue]
     assert isinstance(metavar, str)
+
+    ctx = click.Context(click.Command("dummy"))
+    metavar_ctx = opt.make_metavar(ctx)
+    assert isinstance(metavar_ctx, str)
+
+    arg = typer.core.TyperArgument(param_decls=["test_arg"])
+    assert arg.make_metavar() == "TEST_ARG"
+
+    anon_arg = typer.core.TyperArgument(param_decls=[], expose_value=False)
+    assert anon_arg.make_metavar() == "ARG"
+
+
+def test_click_compat_value_is_missing() -> None:
+    """Verify compatibility bridge flags None as missing for required parameters."""
+    import click
+
+    req_opt = click.Option(["--req"], required=True)
+    assert req_opt.value_is_missing(None) is True
+    assert req_opt.value_is_missing("val") is False
+
+    opt_param = click.Option(["--opt"], required=False)
+    assert opt_param.value_is_missing(None) is False
 
 
 def test_wrap_main_invoked(monkeypatch: pytest.MonkeyPatch) -> None:

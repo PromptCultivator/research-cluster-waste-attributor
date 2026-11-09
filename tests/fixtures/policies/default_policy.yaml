@@ -1,12 +1,32 @@
-group_key:
-  - user
-  - command_hash_or_job_name
-min_samples: 5
-safety_factor: 1.2
-retry_window_seconds: 86400
-recompute_window_seconds: 2592000
-short_job_threshold_seconds: 120
-early_failure_threshold_seconds: 60
-timeout_safety_factor: 1.5
-oom_escalation_factor: 1.5
-mem_weight_core_hours_per_gb_hour: 0.25
+# Default Waste Attribution and Rightsizing Policy Fixture
+
+grouping:
+  group_keys:
+    - "user"
+    - "command_hash_or_job_name"
+  secondary_rollups:
+    - "account"
+    - "partition"
+    - "user"
+  min_samples: 5
+
+attribution:
+  retry_window_s: 86400
+  recompute_window_s: 2592000
+  early_failure_threshold_s: 60
+  mem_weight_core_hours_per_gb_hour: 0.25
+
+recommendations:
+  memory:
+    percentile: 0.99
+    safety_factor: 1.2
+    oom_multiplier: 1.5
+  cpu:
+    percentile: 0.99
+    safety_factor: 1.2
+    min_run_s: 120
+  timeout:
+    percentile: 0.99
+    multiplier: 1.5
+  recompute:
+    cache_threshold_waste_share: 0.05

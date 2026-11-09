@@ -38,8 +38,8 @@
       "group": "david/order_book_proc",
       "count": 3,
       "reclaim_core_hours": 4.0,
-      "reclaim_gb_hours": 48.0,
-      "score": 16.0,
+      "reclaim_gb_hours": 0.0,
+      "score": 4.0,
       "recommendation": {
         "req_mem_mb": 69000,
         "cpus": 8,
