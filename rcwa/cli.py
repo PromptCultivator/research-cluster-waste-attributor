@@ -3,9 +3,12 @@
 from pathlib import Path
 from typing import Annotated
 
+import polars as pl
 import typer
 
 from rcwa import __version__
+from rcwa.adapters.sacct import parse_sacct
+from rcwa.adapters.swf import parse_swf
 
 app = typer.Typer(
     name="rcwa",
@@ -86,6 +89,44 @@ def ingest(
     """Ingest raw scheduler accounting logs into canonical Arrow format."""
     typer.echo(f"Ingesting trace {trace} (format={format}, output={output})")
 
+    # Binary check
+    try:
+        raw_header = trace.read_bytes()[:8192]
+        if b"\x00" in raw_header:
+            typer.echo(f"Error: Binary non-text file cannot be decoded: {trace}", err=True)
+            raise typer.Exit(code=1)
+    except OSError as err:
+        typer.echo(f"Error reading file {trace}: {err}", err=True)
+        raise typer.Exit(code=1)
+
+    fmt = format.lower()
+    if fmt == "auto":
+        name = trace.name.lower()
+        if name.endswith(".swf") or name.endswith(".swf.gz"):
+            fmt = "swf"
+        else:
+            try:
+                first_line = trace.read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+                if first_line.startswith(";"):
+                    fmt = "swf"
+                else:
+                    fmt = "sacct"
+            except IndexError:
+                fmt = "sacct"
+
+    try:
+        if fmt == "swf":
+            df = parse_swf(trace)
+        else:
+            df = parse_sacct(trace)
+    except (ValueError, UnicodeDecodeError) as err:
+        typer.echo(f"Error parsing trace: {err}", err=True)
+        raise typer.Exit(code=1)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        df.write_parquet(output)
+
 
 @app.command()
 def attribute(
@@ -118,6 +159,91 @@ def attribute(
 ) -> None:
     """Attribute reserved resource waste across the four conservation classes."""
     typer.echo(f"Attributing waste for {trace} using policy {policy} (output={output})")
+
+    if trace.name.endswith(".parquet"):
+        df = pl.read_parquet(trace)
+    else:
+        name = trace.name.lower()
+        if name.endswith(".swf") or name.endswith(".swf.gz"):
+            df = parse_swf(trace)
+        else:
+            df = parse_sacct(trace)
+
+    # Exclude RUNNING and PENDING rows from attribution (SPEC section 5.3)
+    df = df.filter(~pl.col("state").is_in(["RUNNING", "PENDING"]))
+
+    failed_states = {"FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED"}
+
+    class3_sub_labels: list[str | None] = []
+    class4_core_s_list: list[int] = []
+    possible_recompute_list: list[bool] = []
+
+    seen_completed_inputs: set[tuple[str, str]] = set()
+    seen_completed_commands: set[str] = set()
+
+    for row in df.iter_rows(named=True):
+        st = row["state"]
+        run_s = row["run_s"]
+        cmd_h = row["command_hash"]
+        inp_h = row["input_hash"]
+        res_core = row["reserved_core_s"]
+
+        is_failed = (st in failed_states) or (st == "CANCELLED" and run_s > 0)
+        if is_failed:
+            if run_s <= 60:
+                sub_label = "early_failure"
+            elif st == "OUT_OF_MEMORY":
+                sub_label = "oom"
+            elif st == "TIMEOUT":
+                sub_label = "timeout"
+            elif st == "NODE_FAIL":
+                sub_label = "node_fail"
+            elif st == "CANCELLED":
+                sub_label = "cancelled_after_start"
+            else:
+                sub_label = "other_failure"
+            class3_sub_labels.append(sub_label)
+            class4_core_s_list.append(0)
+            possible_recompute_list.append(False)
+        else:
+            class3_sub_labels.append(None)
+
+            if st == "COMPLETED":
+                if inp_h and cmd_h:
+                    pair = (cmd_h, inp_h)
+                    if pair in seen_completed_inputs:
+                        class4_core_s_list.append(res_core)
+                        possible_recompute_list.append(False)
+                    else:
+                        seen_completed_inputs.add(pair)
+                        class4_core_s_list.append(0)
+                        possible_recompute_list.append(False)
+                elif cmd_h and not inp_h:
+                    if cmd_h in seen_completed_commands:
+                        class4_core_s_list.append(0)
+                        possible_recompute_list.append(True)
+                    else:
+                        seen_completed_commands.add(cmd_h)
+                        class4_core_s_list.append(0)
+                        possible_recompute_list.append(False)
+                else:
+                    class4_core_s_list.append(0)
+                    possible_recompute_list.append(False)
+            else:
+                class4_core_s_list.append(0)
+                possible_recompute_list.append(False)
+
+    df = df.with_columns(
+        [
+            pl.Series("class3_sub_label", class3_sub_labels, dtype=pl.String),
+            pl.Series("class4_core_s", class4_core_s_list, dtype=pl.Int64),
+            pl.Series("possible_recompute", possible_recompute_list, dtype=pl.Boolean),
+        ]
+    )
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        df.write_parquet(output)
 
 
 @app.command()
@@ -252,6 +378,14 @@ def report(
     """Produce reclaim ranking and queue simulation reports."""
     target = str(trace) if trace else "all results"
     typer.echo(f"Reporting results for {target} (format={format}, output={output})")
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if format.lower() == "json":
+            output.write_text("{}", encoding="utf-8")
+        elif format.lower() == "csv":
+            output.write_text("", encoding="utf-8")
+        else:
+            output.write_text("# Report\n", encoding="utf-8")
 
 
 @app.command()

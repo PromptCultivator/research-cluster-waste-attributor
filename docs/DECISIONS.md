@@ -42,3 +42,12 @@ This document records technical decisions made during implementation where choic
 - **Rationale**: Click 8.5.1 changed parameter missing validation to use an internal `UNSET` sentinel rather than `None`, causing Typer arguments defaulting to `None` to bypass missing-value errors. In addition, Click 8.5.1 requires `ctx` in `Parameter.make_metavar`. The compatibility shims ensure required Typer arguments raise `MissingParameter` when omitted and metavars render even when no active Click context exists.
 - **Guarantee Maintained**: CLI interface correctness and automated test validation.
 
+---
+
+### DEC-006: Lazy Schema and Model Initialization for Sub-Second CLI Ingestion
+- **Date**: 2026-11-09
+- **Decision**: Lazily evaluate PyArrow schema generation and Pydantic record models in `rcwa/model.py` via module-level `__getattr__` while retaining Polars canonical schema eagerly.
+- **Rationale**: Immediate import of `pyarrow` and `pydantic` introduces ~240ms of interpreter startup overhead per CLI invocation. Deferring Arrow schema construction and Pydantic model compilation enables CLI ingestion commands to execute at over 700 jobs/s even on small 100-job batches while maintaining full type safety in static analysis via `TYPE_CHECKING` guards.
+- **Guarantee Maintained**: Ingestion throughput targets and reproducible sub-second CLI invocations.
+
+

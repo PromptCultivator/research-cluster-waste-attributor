@@ -6,7 +6,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -107,7 +107,11 @@ def compute_input_hash(
     return combined_hasher.hexdigest()
 
 
-def record_hash(input_hash: str) -> None:
+def record_hash(
+    input_hash: str,
+    command_hash: str | None = None,
+    inputs_detail: list[dict[str, Any]] | None = None,
+) -> None:
     """Record input hash into Slurm comment and sidecar file when applicable."""
     slurm_job_id = os.environ.get("SLURM_JOB_ID")
 
@@ -121,7 +125,7 @@ def record_hash(input_hash: str) -> None:
                 f"Comment=RCWA_INPUT_HASH={input_hash}",
             ]
             subprocess.run(update_cmd, check=False, capture_output=True)
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError):
             pass
 
     # 2. Write sidecar json file if RCWA_DIR is specified
@@ -132,10 +136,14 @@ def record_hash(input_hash: str) -> None:
             sidecar_dir.mkdir(parents=True, exist_ok=True)
             job_key = slurm_job_id if slurm_job_id else "unknown"
             sidecar_file = sidecar_dir / f"{job_key}.json"
-            sidecar_payload = {
+            sidecar_payload: dict[str, Any] = {
                 "job_id": job_key,
                 "input_hash": input_hash,
             }
+            if command_hash:
+                sidecar_payload["command_hash"] = command_hash
+            if inputs_detail is not None:
+                sidecar_payload["inputs"] = inputs_detail
             sidecar_file.write_text(json.dumps(sidecar_payload, indent=2), encoding="utf-8")
         except OSError:
             pass
@@ -192,6 +200,17 @@ def run_wrap(
         raise typer.Exit(code=1)
 
     input_list = [p.strip() for p in inputs.split(",") if p.strip()] if inputs else []
+    inputs_detail: list[dict[str, Any]] = []
+    for inp in input_list:
+        p = Path(inp)
+        if not p.exists():
+            inputs_detail.append({"path": inp, "status": "missing"})
+        else:
+            inputs_detail.append({"path": inp, "status": "present"})
+
+    normalized_cmd = normalize_command_line(command_tokens, regex_strip=regex_strip)
+    cmd_hash = hashlib.sha256(normalized_cmd.encode("utf-8")).hexdigest()
+
     digest = compute_input_hash(
         inputs=input_list,
         cmd=command_tokens,
@@ -200,7 +219,7 @@ def run_wrap(
         regex_strip=regex_strip,
     )
 
-    record_hash(digest)
+    record_hash(digest, command_hash=cmd_hash, inputs_detail=inputs_detail)
 
     try:
         result = subprocess.run(command_tokens)
