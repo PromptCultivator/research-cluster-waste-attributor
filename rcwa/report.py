@@ -18,6 +18,10 @@ def build_report_data(
     canonical_df: pl.DataFrame,
     attributed_df: pl.DataFrame,
     policy: Any = None,
+    cluster: Any = None,
+    simulation_scenarios: dict[str, Any] | None = None,
+    calibration: dict[str, Any] | None = None,
+    include_simulation: bool = True,
 ) -> dict[str, Any]:
     """Compile comprehensive attribution and recommendation report structure.
 
