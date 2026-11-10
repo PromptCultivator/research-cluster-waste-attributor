@@ -305,3 +305,21 @@ Requirements for Phase 2:
 - Run the full test suite (`make test`), lint (`make lint`), and typecheck (`make typecheck`).
 - Stop at the end of Phase 2 and report using the format in Section 15.
 - Do not begin Phase 3 without explicit user confirmation.
+
+
+## 2026-11-10T01:23:26Z
+
+proceed with phase 3
+
+Context from project:
+Phases 0, 1, and 2 of `docs/SPEC.md` are 100% complete, verified, and committed to git on main.
+The repository currently has 310 passing unit and integration tests with 90.89% statement coverage.
+High-level system design `docs/DESIGN.md` and detailed component specifications `docs/components/` have been written and committed.
+
+Now execute Phase 3 — Recommendations per SPEC §14 and §7:
+- Implement `rcwa/recommend.py` with guardrails (memory rightsizing with p99 * 1.2, floor at observed max RSS, OOM escalation to increase * 1.5; CPU rightsizing with p99 * 1.2, short jobs < 120s exclusion; timeout limit p99 * 1.5; early failure reporting; min_samples floor).
+- Implement Guarantee G2 property tests using Hypothesis (`tests/property/test_safety_guardrails.py`) evaluating 10,000 generated groups asserting zero guardrail violations.
+- Connect recommendation commands to `rcwa/cli.py` (`recommend`).
+- Ensure all quality gates pass: `make lint`, `make typecheck`, `make test` (coverage >= 85%), and zero prohibited words.
+- Commit the Phase 3 changes with an imperative message.
+- Stop at the end of Phase 3 and report using the format in Section 15 of `docs/SPEC.md`. Do not start Phase 4 without confirmation.

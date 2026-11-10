@@ -217,19 +217,19 @@ def recommend(
     """Generate right-sized CPU and memory resource recommendations with guardrails."""
     typer.echo(f"Generating recommendations from {attributed} with {policy} (output={output})")
 
-    from rcwa.groups import export_group_metrics, group_jobs
     from rcwa.model import empty_canonical_df
+    from rcwa.recommend import export_recommendations, recommend_jobs
 
     try:
         attr_df = pl.read_parquet(attributed)
     except Exception:
         attr_df = empty_canonical_df()
 
-    groups_df = group_jobs(attr_df, policy=policy)
+    recs_df = recommend_jobs(attr_df, policy=policy, trace_path=output or attributed)
 
     if output is not None:
         fmt = "csv" if output.suffix.lower() == ".csv" else "parquet"
-        export_group_metrics(groups_df, output, format=fmt)
+        export_recommendations(recs_df, output, format=fmt)
 
 
 @app.command()

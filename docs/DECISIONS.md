@@ -74,4 +74,13 @@ This document records technical decisions made during implementation where choic
 - **Rationale**: Provides deterministic, causal matching when multiple matching jobs are submitted following a failure, preventing duplicate linkage and resolving multi-hop chains to their original root failure.
 - **Guarantee Maintained**: Guarantee G3 (Determinism) and causality in retry chain identification.
 
+---
+
+### DEC-010: Guarantee G2 Safety Guardrail Priority Order and OOM Escalation Invariants
+- **Date**: 2026-11-09
+- **Decision**: Prioritize OUT_OF_MEMORY failure escalation over sample floor exclusions such that any group exhibiting an out-of-memory termination receives an immediate memory increase recommendation (`ceil(max_observed * 1.5)`) and has `reclaimable_gb_hours` zeroed, even if its sample count is below `min_samples`. Non-OOM groups with sample counts below `min_samples` receive `None` across all recommendations and action `below_sample_floor`. Memory recommendations are strictly floored at the maximum observed RSS across all jobs in the cohort regardless of terminal state.
+- **Rationale**: An out-of-memory termination represents a fatal workload disruption requiring memory allocation escalation rather than statistical reduction. Zeroing reclaimable memory prevents hazardous capacity reclamation while ensuring that groups with insufficient sample counts are protected from uncalibrated reductions.
+- **Guarantee Maintained**: Guarantee G2 (Safety Guardrails).
+
+
 

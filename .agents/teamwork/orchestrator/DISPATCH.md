@@ -63,3 +63,42 @@ Requirements for Phase 2:
 - Run the full test suite (`make test`), lint (`make lint`), and typecheck (`make typecheck`).
 - Stop at the end of Phase 2 and report using the format in Section 15.
 - Do not begin Phase 3 without explicit user confirmation.
+
+## 2026-11-10T01:23:26Z
+Sender: sentinel
+Priority: MESSAGE_PRIORITY_HIGH
+
+The user has confirmed to proceed with Phase 3. Please execute Phase 3 (Recommendations) per SPEC §14 and §7:
+- Implement `rcwa/recommend.py` with guardrails (memory rightsizing with p99 * 1.2, floor at observed max RSS, OOM escalation to increase * 1.5; CPU rightsizing with p99 * 1.2, short jobs < 120s exclusion; timeout limit p99 * 1.5; early failure reporting; min_samples floor).
+- Implement Guarantee G2 property tests using Hypothesis (`tests/property/test_safety_guardrails.py`) evaluating 10,000 generated groups asserting zero guardrail violations.
+- Connect recommendation commands to `rcwa/cli.py` (`recommend`).
+- Ensure all quality gates pass: `make lint`, `make typecheck`, `make test` (coverage >= 85%), and zero prohibited words.
+- Commit the Phase 3 changes with an imperative message.
+- Stop at the end of Phase 3 and report using the format in Section 15 of `docs/SPEC.md`. Do not start Phase 4 without confirmation.
+## 2026-11-10T01:24:31Z
+Sender: 59ca2f136c76a91007b667220aa84db0 (Parent)
+Priority: MESSAGE_PRIORITY_HIGH
+
+You are the Project Orchestrator for `research-cluster-waste-attributor`.
+Your working directory is:
+/home/antigravity/PromptCultivator/research-cluster-waste-attributor/.agents/teamwork/orchestrator
+Project root:
+/home/antigravity/PromptCultivator/research-cluster-waste-attributor
+
+Please resume orchestration from your existing state files:
+- Working directory: `/home/antigravity/PromptCultivator/research-cluster-waste-attributor/.agents/teamwork/orchestrator`
+- Existing state: `BRIEFING.md`, `progress.md`, `DISPATCH.md`
+- Original request log: `/home/antigravity/PromptCultivator/research-cluster-waste-attributor/.agents/teamwork/ORIGINAL_REQUEST.md`
+- Specification: `/home/antigravity/PromptCultivator/research-cluster-waste-attributor/docs/SPEC.md`
+- Design docs: `docs/DESIGN.md` and `docs/components/`
+
+Phases 0, 1, and 2 are 100% complete, verified, and committed.
+The user has confirmed to proceed with Phase 3 (Recommendations).
+
+Now execute Phase 3 — Recommendations per SPEC §14 and §7:
+- Implement `rcwa/recommend.py` with guardrails (memory rightsizing with p99 * 1.2, floor at observed max RSS, OOM escalation to increase * 1.5; CPU rightsizing with p99 * 1.2, short jobs < 120s exclusion; timeout limit p99 * 1.5; early failure reporting; min_samples floor).
+- Implement Guarantee G2 property tests using Hypothesis (`tests/property/test_safety_guardrails.py`) evaluating 10,000 generated groups asserting zero guardrail violations.
+- Connect recommendation commands to `rcwa/cli.py` (`recommend`).
+- Ensure all quality gates pass: `make lint`, `make typecheck`, `make test` (coverage >= 85%), and zero prohibited words ("simply", "robust", "seamless", "best", "optimal", "clean", "minimal", "powerful", "cutting-edge").
+- Commit the Phase 3 changes with an imperative message.
+- Stop at the end of Phase 3 and report back to Sentinel with the completed report formatted strictly per Section 15 of `docs/SPEC.md`. Do not start Phase 4 without confirmation.
