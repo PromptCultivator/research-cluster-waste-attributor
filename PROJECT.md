@@ -102,7 +102,7 @@ Every feature extracted from `docs/SPEC.md` and `ORIGINAL_REQUEST.md` is invento
 |---|------|-------|-------------|--------|
 | M0 | Phase 0 — Scaffold | Repository layout, pyproject.toml (pinned deps), Makefile (13 targets), Dockerfile, CI workflow, initial docs (DECISIONS.md, AI-ASSISTANCE.md, DATA.md, 5 ADR stubs), README skeleton, default policies, example cluster | none | DONE (26 tests, 95.24% cov, ruff/pyright pass, 0 prohibited words, auditor verified) |
 | M1 | Phase 1 — Adapters & Canonical Record | model.py, normalize.py, adapters/sacct.py, adapters/swf.py, fixtures, 100k-row throughput benchmark | M0 | DONE (261 tests, 92.13% cov, 31,017 jobs/s, ruff/pyright pass, auditor clean) |
-| M2 | Phase 2 — Attribution | attribute.py, groups.py, retries.py, G1 conservation test on fixtures and 20k trace, Parquet/CSV output | M1 | PLANNED |
+| M2 | Phase 2 — Attribution | attribute.py, groups.py, retries.py, G1 conservation test on fixtures and 20k trace, Parquet/CSV output | M1 | DONE (310 tests, 90.89% cov, G1 exact on 20k trace, ruff/pyright pass, auditor clean) |
 | M3 | Phase 3 — Recommendations | recommend.py with guardrails (floor, OOM, min_samples), G2 Hypothesis property tests (10k groups) | M2 | PLANNED |
 | M4 | Phase 4 — Recomputation | wrap.py (rcwa-wrap), recompute.py, sidecar and Comment readers, recall/precision verification | M2 | PLANNED |
 | M5 | Phase 5 — Simulator & Calibration | simulate.py (FCFS + EASY backfill), calibrate.py, G4 validity tests, 1M job target benchmark | M3, M4 | PLANNED |

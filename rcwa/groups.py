@@ -5,6 +5,7 @@ dimensions (account, partition, user), scoring reclaimable capacity and
 sampling evidence records.
 """
 
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,32 @@ from typing import Any
 import polars as pl
 
 from rcwa.attribute import _extract_policy_dict
+
+GROUP_METRICS_SCHEMA: dict[str, type[pl.DataType] | pl.DataType] = {
+    "group": pl.String,
+    "job_count": pl.Int64,
+    "total_reserved_core_hours": pl.Float64,
+    "total_used_core_hours": pl.Float64,
+    "total_reserved_gb_hours": pl.Float64,
+    "total_used_gb_hours": pl.Float64,
+    "class1_over_mem_gb_hours": pl.Float64,
+    "class2_idle_core_hours": pl.Float64,
+    "class3_failed_core_hours": pl.Float64,
+    "class3_failed_gb_hours": pl.Float64,
+    "class4_recompute_core_hours": pl.Float64,
+    "class4_recompute_gb_hours": pl.Float64,
+    "unattributed_core_hours": pl.Float64,
+    "unattributed_gb_hours": pl.Float64,
+    "reclaimable_core_hours": pl.Float64,
+    "reclaimable_gb_hours": pl.Float64,
+    "reclaim_score": pl.Float64,
+    "score": pl.Float64,
+    "cluster_reserved_core_share": pl.Float64,
+    "cluster_waste_score_share": pl.Float64,
+    "sample_count_ok": pl.Boolean,
+    "has_oom": pl.Boolean,
+    "evidence_job_ids": pl.List(pl.String),
+}
 
 
 def group_jobs(
@@ -44,33 +71,7 @@ def group_jobs(
             group_keys = ["user", "command_hash_or_job_name"]
 
     if attributed_df.height == 0:
-        return pl.DataFrame(
-            schema={
-                "group": pl.String,
-                "job_count": pl.Int64,
-                "total_reserved_core_hours": pl.Float64,
-                "total_used_core_hours": pl.Float64,
-                "total_reserved_gb_hours": pl.Float64,
-                "total_used_gb_hours": pl.Float64,
-                "class1_over_mem_gb_hours": pl.Float64,
-                "class2_idle_core_hours": pl.Float64,
-                "class3_failed_core_hours": pl.Float64,
-                "class3_failed_gb_hours": pl.Float64,
-                "class4_recompute_core_hours": pl.Float64,
-                "class4_recompute_gb_hours": pl.Float64,
-                "unattributed_core_hours": pl.Float64,
-                "unattributed_gb_hours": pl.Float64,
-                "reclaimable_core_hours": pl.Float64,
-                "reclaimable_gb_hours": pl.Float64,
-                "reclaim_score": pl.Float64,
-                "score": pl.Float64,
-                "cluster_reserved_core_share": pl.Float64,
-                "cluster_waste_score_share": pl.Float64,
-                "sample_count_ok": pl.Boolean,
-                "has_oom": pl.Boolean,
-                "evidence_job_ids": pl.List(pl.String),
-            }
-        )
+        return pl.DataFrame(schema=GROUP_METRICS_SCHEMA)
 
     # Prepare DataFrame with derived identifiers if required
     df = attributed_df
@@ -83,21 +84,37 @@ def group_jobs(
 
     # Determine group label expression
     if group_keys == ["user", "command_hash_or_job_name"]:
-        cmd_expr = pl.coalesce([pl.col("job_name"), pl.col("command_hash"), pl.lit("unknown")])
-        df = df.with_columns(
-            pl.concat_str([pl.col("user").fill_null("unknown"), pl.lit("/"), cmd_expr]).alias(
-                "group"
-            )
+        cmd_expr = (
+            pl.when(pl.col("job_name").is_not_null() & (pl.col("job_name") != ""))
+            .then(pl.col("job_name"))
+            .when(pl.col("command_hash").is_not_null() & (pl.col("command_hash") != ""))
+            .then(pl.col("command_hash"))
+            .otherwise(pl.lit("unknown"))
         )
+        user_expr = (
+            pl.when(pl.col("user").is_not_null() & (pl.col("user") != ""))
+            .then(pl.col("user"))
+            .otherwise(pl.lit("unknown"))
+        )
+        df = df.with_columns(pl.concat_str([user_expr, pl.lit("/"), cmd_expr]).alias("group"))
     elif len(group_keys) == 1:
         k = group_keys[0]
         if k in df.columns:
-            df = df.with_columns(pl.col(k).fill_null("unknown").cast(pl.String).alias("group"))
+            col_expr = (
+                pl.when(pl.col(k).is_not_null() & (pl.col(k).cast(pl.String) != ""))
+                .then(pl.col(k).cast(pl.String))
+                .otherwise(pl.lit("unknown"))
+            )
+            df = df.with_columns(col_expr.alias("group"))
         else:
             df = df.with_columns(pl.lit("unknown").alias("group"))
     else:
         exprs = [
-            pl.col(k).fill_null("unknown").cast(pl.String) for k in group_keys if k in df.columns
+            pl.when(pl.col(k).is_not_null() & (pl.col(k).cast(pl.String) != ""))
+            .then(pl.col(k).cast(pl.String))
+            .otherwise(pl.lit("unknown"))
+            for k in group_keys
+            if k in df.columns
         ]
         if exprs:
             df = df.with_columns(pl.concat_str(exprs, separator="/").alias("group"))
@@ -120,7 +137,7 @@ def group_jobs(
     mb_to_gb_hours = 1024.0 * 3600.0
     agg_df = df.group_by("group").agg(
         [
-            pl.len().alias("job_count"),
+            pl.len().cast(pl.Int64).alias("job_count"),
             (pl.col("reserved_core_s").sum() / 3600.0).alias("total_reserved_core_hours"),
             (pl.col("used_core_s").sum() / 3600.0).alias("total_used_core_hours"),
             (pl.col("reserved_mem_mb_s").sum() / mb_to_gb_hours).alias("total_reserved_gb_hours"),
@@ -175,15 +192,17 @@ def group_jobs(
     # Compute cluster total shares
     total_cluster_reserved_cores = agg_df.select(pl.col("total_reserved_core_hours").sum()).item()
     total_cluster_waste_score = agg_df.select(pl.col("reclaim_score").sum()).item()
+    total_reserved = float(total_cluster_reserved_cores or 0.0)
+    total_waste = float(total_cluster_waste_score or 0.0)
 
     agg_df = agg_df.with_columns(
         [
-            pl.when(pl.lit(total_cluster_reserved_cores > 0))
-            .then(pl.col("total_reserved_core_hours") / pl.lit(total_cluster_reserved_cores))
+            pl.when(pl.lit(total_reserved > 0.0))
+            .then(pl.col("total_reserved_core_hours") / pl.lit(total_reserved))
             .otherwise(pl.lit(0.0))
             .alias("cluster_reserved_core_share"),
-            pl.when(pl.lit(total_cluster_waste_score > 0))
-            .then(pl.col("reclaim_score") / pl.lit(total_cluster_waste_score))
+            pl.when(pl.lit(total_waste > 0.0))
+            .then(pl.col("reclaim_score") / pl.lit(total_waste))
             .otherwise(pl.lit(0.0))
             .alias("cluster_waste_score_share"),
         ]
@@ -197,7 +216,10 @@ def group_jobs(
     for r in raw_evidence_rows:
         grp = str(r["group"])
         jid = str(r["job_id"])
-        score_val = float(r["_job_waste_score"] or 0.0)
+        score_raw = r["_job_waste_score"]
+        score_val = float(score_raw) if score_raw is not None else 0.0
+        if math.isnan(score_val):
+            score_val = 0.0
         group_jobs_dict[grp].append((score_val, jid))
 
     for grp, job_tuples in group_jobs_dict.items():
@@ -214,8 +236,11 @@ def group_jobs(
         pl.Series("evidence_job_ids", evidence_col, dtype=pl.List(pl.String))
     )
 
-    # Sort final table by reclaim_score descending, breaking ties by group ascending
-    return agg_df.sort(["reclaim_score", "group"], descending=[True, False])
+    # Select canonical schema columns and sort by reclaim_score descending,
+    # breaking ties by group ascending
+    return agg_df.select(list(GROUP_METRICS_SCHEMA.keys())).sort(
+        ["reclaim_score", "group"], descending=[True, False]
+    )
 
 
 def generate_secondary_rollups(
@@ -253,9 +278,12 @@ def export_group_metrics(
     normalized_fmt = format.lower().strip()
     if normalized_fmt == "csv" or p.suffix.lower() == ".csv":
         # Format evidence_job_ids list as semicolon-delimited string for CSV
-        df_csv = df.with_columns(
-            pl.col("evidence_job_ids").list.join(";").alias("evidence_job_ids")
-        )
+        if "evidence_job_ids" in df.columns:
+            df_csv = df.with_columns(
+                pl.col("evidence_job_ids").list.join(";").alias("evidence_job_ids")
+            )
+        else:
+            df_csv = df
         df_csv.write_csv(p)
     else:
         df.write_parquet(p)

@@ -6,13 +6,22 @@ precedence rules enforcing Guarantee G1.
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 
 from rcwa.retries import FAILED_STATES, detect_retry_chains
+
+
+def _normalize_dt(dt: datetime | None) -> datetime | None:
+    """Ensure datetime carries UTC timezone if naive."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
 
 
 def _extract_policy_dict(policy: Any) -> dict[str, Any]:
@@ -146,10 +155,18 @@ def attribute_trace(
     completed_commands: dict[str, list[Any]] = defaultdict(list)
 
     # Chronological sort index for recomputation matching
-    indexed_order = sorted(
-        range(len(records)),
-        key=lambda i: (records[i]["submit_time"] or eff_end_times[i] or i, records[i]["job_id"]),
-    )
+    def _recompute_sort_key(i: int) -> tuple[int, datetime, int, str]:
+        sub = _normalize_dt(records[i]["submit_time"])
+        eff = _normalize_dt(eff_end_times[i])
+        t = sub if sub is not None else eff
+        return (
+            0 if t is not None else 1,
+            t if t is not None else datetime.min.replace(tzinfo=UTC),
+            i,
+            str(records[i]["job_id"]),
+        )
+
+    indexed_order = sorted(range(len(records)), key=_recompute_sort_key)
 
     recompute_status: dict[int, tuple[bool, bool, str | None]] = {}
     for idx in indexed_order:
@@ -158,8 +175,8 @@ def attribute_trace(
         source = (row.get("source") or "").lower()
         cmd_h = row.get("command_hash")
         inp_h = row.get("input_hash")
-        sub_time = row.get("submit_time")
-        eff_end = eff_end_times[idx]
+        sub_time = _normalize_dt(row.get("submit_time"))
+        eff_end = _normalize_dt(eff_end_times[idx])
 
         if source == "swf":
             # SWF traces do not carry declared inputs
@@ -178,8 +195,9 @@ def attribute_trace(
             pair = (cmd_h, inp_h)
             if pair in completed_pairs and sub_time is not None:
                 for prev_end in completed_pairs[pair]:
-                    if prev_end is not None:
-                        delta = (sub_time - prev_end).total_seconds()
+                    prev_end_utc = _normalize_dt(prev_end)
+                    if prev_end_utc is not None:
+                        delta = (sub_time - prev_end_utc).total_seconds()
                         if 0 <= delta <= recompute_window_s:
                             is_recompute = True
                             confidence = "declared_inputs"
@@ -189,8 +207,9 @@ def attribute_trace(
                 # Check whether matching command_only history exists
                 if cmd_h in completed_commands and sub_time is not None:
                     for prev_end in completed_commands[cmd_h]:
-                        if prev_end is not None:
-                            delta = (sub_time - prev_end).total_seconds()
+                        prev_end_utc = _normalize_dt(prev_end)
+                        if prev_end_utc is not None:
+                            delta = (sub_time - prev_end_utc).total_seconds()
                             if 0 <= delta <= recompute_window_s:
                                 possible_recomp = True
                                 confidence = "command_only"
@@ -204,8 +223,9 @@ def attribute_trace(
         elif cmd_h and not inp_h:
             if cmd_h in completed_commands and sub_time is not None:
                 for prev_end in completed_commands[cmd_h]:
-                    if prev_end is not None:
-                        delta = (sub_time - prev_end).total_seconds()
+                    prev_end_utc = _normalize_dt(prev_end)
+                    if prev_end_utc is not None:
+                        delta = (sub_time - prev_end_utc).total_seconds()
                         if 0 <= delta <= recompute_window_s:
                             possible_recomp = True
                             confidence = "command_only"

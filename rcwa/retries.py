@@ -5,12 +5,21 @@ user with identical task identifiers within a configurable temporal window.
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import polars as pl
 
 FAILED_STATES = {"FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED"}
+
+
+def _normalize_dt(dt: datetime | None) -> datetime | None:
+    """Ensure datetime carries UTC timezone if naive."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
 
 
 def detect_retry_chains(
@@ -103,19 +112,39 @@ def detect_retry_chains(
 
     for _grp_key, grp_items in groups.items():
         # Sort jobs chronologically by submit_time, then job_id
-        sorted_jobs = sorted(
-            grp_items,
-            key=lambda x: (x["submit_time"] or x["idx"], x["job_id"]),
-        )
+        def _job_sort_key(x: dict[str, Any]) -> tuple[int, datetime, int, str]:
+            sub = _normalize_dt(x["submit_time"])
+            return (
+                0 if sub is not None else 1,
+                sub if sub is not None else datetime.min.replace(tzinfo=UTC),
+                x["idx"],
+                x["job_id"],
+            )
+
+        sorted_jobs = sorted(grp_items, key=_job_sort_key)
 
         # Collect failed jobs in group
         failed_jobs = [j for j in sorted_jobs if j["is_failed"] and j["eff_end"] is not None]
+
         # Sort failed jobs chronologically by effective end time
-        failed_jobs.sort(key=lambda x: (x["eff_end"], x["submit_time"] or x["idx"], x["job_id"]))
+        def _failed_sort_key(x: dict[str, Any]) -> tuple[datetime, int, datetime, int, str]:
+            eff = _normalize_dt(x["eff_end"]) or datetime.min.replace(tzinfo=UTC)
+            sub = _normalize_dt(x["submit_time"])
+            return (
+                eff,
+                0 if sub is not None else 1,
+                sub if sub is not None else datetime.min.replace(tzinfo=UTC),
+                x["idx"],
+                x["job_id"],
+            )
+
+        failed_jobs.sort(key=_failed_sort_key)
 
         for f_job in failed_jobs:
-            f_end = f_job["eff_end"]
+            f_end = _normalize_dt(f_job["eff_end"])
             f_id = f_job["job_id"]
+            if f_end is None:
+                continue
 
             # Search for earliest eligible subsequent resubmission
             candidates = []
@@ -123,7 +152,7 @@ def detect_retry_chains(
                 c_id = c_job["job_id"]
                 if c_id == f_id or c_id in claimed_children:
                     continue
-                c_sub = c_job["submit_time"]
+                c_sub = _normalize_dt(c_job["submit_time"])
                 if c_sub is None:
                     continue
                 # Temporal causality: resubmission must happen at or after failure end

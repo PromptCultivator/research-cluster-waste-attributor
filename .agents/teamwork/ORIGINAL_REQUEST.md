@@ -293,3 +293,15 @@ Requirements for Phase 1:
 - Run the full test suite (`make test`), lint (`make lint`), and typecheck (`make typecheck`).
 - Stop at the end of Phase 1 and report using the format in Section 15.
 - Do not begin Phase 2 without explicit user confirmation.
+
+
+## 2026-11-09T23:52:04Z
+
+The user has confirmed to proceed. Please instruct the Project Orchestrator to execute Phase 2 (Attribution) per SPEC §14.
+
+Requirements for Phase 2:
+- Implement `attribute.py`, `groups.py`, `retries.py`, and the Guarantee G1 conservation test.
+- Acceptance criteria: conservation holds exactly on fixtures and on a 20k synthetic trace; per-job and group tables written as Parquet and CSV.
+- Run the full test suite (`make test`), lint (`make lint`), and typecheck (`make typecheck`).
+- Stop at the end of Phase 2 and report using the format in Section 15.
+- Do not begin Phase 3 without explicit user confirmation.

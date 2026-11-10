@@ -233,3 +233,339 @@ def test_guarantee_g1_on_20k_synthetic_trace() -> None:
 
     # Enforce Guarantee G1 across all 16,000 non-running/non-pending jobs
     _verify_dataframe_g1(attr_df)
+
+
+def test_guarantee_g1_null_metrics() -> None:
+    """Verify Guarantee G1 when cpu_time_used_s, max_rss_mb, or req_mem_mb are null."""
+    base_time = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
+
+    # Job 1: Null cpu_time_used_s -> 100% unattributed core reservation without drift
+    # Job 2: Null max_rss_mb -> 100% unattributed memory reservation without drift
+    # Job 3: Null req_mem_mb -> normalized to 0 reservation, 0 consumption
+    df = pl.DataFrame(
+        {
+            "job_id": ["null_cpu", "null_rss", "null_req_mem"],
+            "parent_job_id": [None, None, None],
+            "source": ["sacct", "sacct", "sacct"],
+            "user": ["user_a", "user_b", "user_c"],
+            "account": ["acc", "acc", "acc"],
+            "partition": ["part", "part", "part"],
+            "job_name": ["job_a", "job_b", "job_c"],
+            "command_hash": ["cmd_a", "cmd_b", "cmd_c"],
+            "input_hash": ["inp_a", "inp_b", "inp_c"],
+            "submit_time": [base_time, base_time, base_time],
+            "start_time": [base_time, base_time, base_time],
+            "end_time": [
+                base_time + timedelta(seconds=100),
+                base_time + timedelta(seconds=100),
+                base_time + timedelta(seconds=100),
+            ],
+            "wait_s": [0, 0, 0],
+            "run_s": [100, 100, 100],
+            "state": ["COMPLETED", "COMPLETED", "COMPLETED"],
+            "exit_code": [0, 0, 0],
+            "req_cpus": [4, 4, 4],
+            "alloc_cpus": [4, 4, 4],
+            "cpu_time_used_s": [None, 300.0, 200.0],
+            "req_mem_mb": [4000, 4000, None],
+            "max_rss_mb": [2000, None, None],
+            "req_gpus": [0, 0, 0],
+            "alloc_gpus": [0, 0, 0],
+            "nodes": [1, 1, 1],
+            "node_list": ["node1", "node1", "node1"],
+            "reserved_core_s": [400, 400, 400],
+            "reserved_mem_mb_s": [400000, 400000, None],
+        }
+    )
+
+    attr_df = attribute_trace(df)
+    _verify_dataframe_g1(attr_df)
+
+    # Job null_cpu assertions
+    row_cpu = attr_df.filter(pl.col("job_id") == "null_cpu")
+    assert row_cpu.select("unattributed_core_s").item() == 400
+    assert row_cpu.select("used_core_s").item() == 0
+    assert row_cpu.select("class2_idle_core_s").item() == 0
+
+    # Job null_rss assertions
+    row_rss = attr_df.filter(pl.col("job_id") == "null_rss")
+    assert row_rss.select("unattributed_mem_mb_s").item() == 400000
+    assert row_rss.select("used_mem_mb_s").item() == 0
+    assert row_rss.select("class1_over_mem_mb_s").item() == 0
+
+    # Job null_req_mem assertions: 0 == 0 + 0 + 0 + 0 + 0
+    row_mem = attr_df.filter(pl.col("job_id") == "null_req_mem")
+    assert row_mem.select("reserved_mem_mb_s").item() == 0
+    assert row_mem.select("used_mem_mb_s").item() == 0
+    assert row_mem.select("class1_over_mem_mb_s").item() == 0
+    assert row_mem.select("unattributed_mem_mb_s").item() == 0
+
+
+def test_guarantee_g1_zero_run_s() -> None:
+    """Verify jobs with run_s = 0 are attributed to Class 3 early failure with zero consumption."""
+    base_time = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
+
+    df = pl.DataFrame(
+        {
+            "job_id": ["z_fail", "z_comp", "z_canc"],
+            "parent_job_id": [None, None, None],
+            "source": ["sacct", "sacct", "sacct"],
+            "user": ["u1", "u1", "u1"],
+            "account": ["acc", "acc", "acc"],
+            "partition": ["part", "part", "part"],
+            "job_name": ["j1", "j2", "j3"],
+            "command_hash": ["cmd1", "cmd2", "cmd3"],
+            "input_hash": ["inp1", "inp2", "inp3"],
+            "submit_time": [base_time, base_time, base_time],
+            "start_time": [base_time, base_time, base_time],
+            "end_time": [base_time, base_time, base_time],
+            "wait_s": [0, 0, 0],
+            "run_s": [0, 0, 0],
+            "state": ["FAILED", "COMPLETED", "CANCELLED"],
+            "exit_code": [1, 0, 0],
+            "req_cpus": [8, 8, 8],
+            "alloc_cpus": [8, 8, 8],
+            "cpu_time_used_s": [0.0, 0.0, 0.0],
+            "req_mem_mb": [16000, 16000, 16000],
+            "max_rss_mb": [0, 0, 0],
+            "req_gpus": [0, 0, 0],
+            "alloc_gpus": [0, 0, 0],
+            "nodes": [1, 1, 1],
+            "node_list": ["node1", "node1", "node1"],
+            "reserved_core_s": [0, 0, 0],
+            "reserved_mem_mb_s": [0, 0, 0],
+        }
+    )
+
+    attr_df = attribute_trace(df)
+    _verify_dataframe_g1(attr_df)
+
+    for row in attr_df.to_dicts():
+        assert row["class3_sub_label"] == "early_failure"
+        assert row["class3_core_s"] == 0
+        assert row["class3_mem_mb_s"] == 0
+        assert row["used_core_s"] == 0
+        assert row["used_mem_mb_s"] == 0
+        assert row["reserved_core_s"] == 0
+        assert row["reserved_mem_mb_s"] == 0
+
+
+def test_guarantee_g1_float_rounding() -> None:
+    """Verify float rounding in cpu_time_used_s preserves exact conservation and non-negativity."""
+    base_time = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
+    float_values = [0.49, 0.50, 0.51, 99.49, 99.50, 99.51, 99.999, 0.001, 100.49, 100.51]
+
+    df = pl.DataFrame(
+        {
+            "job_id": [f"flt_{i}" for i in range(len(float_values))],
+            "parent_job_id": [None] * len(float_values),
+            "source": ["sacct"] * len(float_values),
+            "user": ["u1"] * len(float_values),
+            "account": ["acc"] * len(float_values),
+            "partition": ["part"] * len(float_values),
+            "job_name": ["job"] * len(float_values),
+            "command_hash": [f"c_{i}" for i in range(len(float_values))],
+            "input_hash": [f"i_{i}" for i in range(len(float_values))],
+            "submit_time": [base_time] * len(float_values),
+            "start_time": [base_time] * len(float_values),
+            "end_time": [base_time + timedelta(seconds=100)] * len(float_values),
+            "wait_s": [0] * len(float_values),
+            "run_s": [100] * len(float_values),
+            "state": ["COMPLETED"] * len(float_values),
+            "exit_code": [0] * len(float_values),
+            "req_cpus": [1] * len(float_values),
+            "alloc_cpus": [1] * len(float_values),
+            "cpu_time_used_s": float_values,
+            "req_mem_mb": [1000] * len(float_values),
+            "max_rss_mb": [500] * len(float_values),
+            "req_gpus": [0] * len(float_values),
+            "alloc_gpus": [0] * len(float_values),
+            "nodes": [1] * len(float_values),
+            "node_list": ["node1"] * len(float_values),
+            "reserved_core_s": [100] * len(float_values),
+            "reserved_mem_mb_s": [100000] * len(float_values),
+        }
+    )
+
+    attr_df = attribute_trace(df)
+    _verify_dataframe_g1(attr_df)
+
+
+def test_guarantee_g1_multithreading_and_memory_burst() -> None:
+    """Verify used resources clamp to reservation and idle/over stay non-negative during burst spikes."""
+    base_time = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
+
+    df = pl.DataFrame(
+        {
+            "job_id": ["cpu_burst", "mem_burst", "both_burst"],
+            "parent_job_id": [None, None, None],
+            "source": ["sacct", "sacct", "sacct"],
+            "user": ["u1", "u1", "u1"],
+            "account": ["acc", "acc", "acc"],
+            "partition": ["part", "part", "part"],
+            "job_name": ["j1", "j2", "j3"],
+            "command_hash": ["cmd1", "cmd2", "cmd3"],
+            "input_hash": ["inp1", "inp2", "inp3"],
+            "submit_time": [base_time, base_time, base_time],
+            "start_time": [base_time, base_time, base_time],
+            "end_time": [
+                base_time + timedelta(seconds=10),
+                base_time + timedelta(seconds=10),
+                base_time + timedelta(seconds=10),
+            ],
+            "wait_s": [0, 0, 0],
+            "run_s": [10, 10, 10],
+            "state": ["COMPLETED", "COMPLETED", "COMPLETED"],
+            "exit_code": [0, 0, 0],
+            "req_cpus": [2, 2, 2],
+            "alloc_cpus": [2, 2, 2],
+            "cpu_time_used_s": [50.0, 10.0, 100.0],  # 50 > 20 reserved, 100 > 20 reserved
+            "req_mem_mb": [1000, 1000, 1000],
+            "max_rss_mb": [500, 2500, 5000],  # 2500 > 1000 requested, 5000 > 1000 requested
+            "req_gpus": [0, 0, 0],
+            "alloc_gpus": [0, 0, 0],
+            "nodes": [1, 1, 1],
+            "node_list": ["node1", "node1", "node1"],
+            "reserved_core_s": [20, 20, 20],
+            "reserved_mem_mb_s": [10000, 10000, 10000],
+        }
+    )
+
+    attr_df = attribute_trace(df)
+    _verify_dataframe_g1(attr_df)
+
+    for row in attr_df.to_dicts():
+        assert row["used_core_s"] <= row["reserved_core_s"]
+        assert row["class2_idle_core_s"] >= 0
+        assert row["used_core_s"] + row["class2_idle_core_s"] == row["reserved_core_s"]
+        assert row["used_mem_mb_s"] <= row["reserved_mem_mb_s"]
+        assert row["class1_over_mem_mb_s"] >= 0
+        assert row["used_mem_mb_s"] + row["class1_over_mem_mb_s"] == row["reserved_mem_mb_s"]
+
+
+def test_guarantee_g1_early_failure_threshold_boundary() -> None:
+    """Verify sub-label classification across the 60s vs 61s early failure boundary."""
+    base_time = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
+
+    df = pl.DataFrame(
+        {
+            "job_id": [
+                "fail_60",
+                "fail_61",
+                "oom_60",
+                "oom_61",
+                "timeout_60",
+                "timeout_61",
+                "canc_60",
+                "canc_61",
+            ],
+            "parent_job_id": [None] * 8,
+            "source": ["sacct"] * 8,
+            "user": ["u1"] * 8,
+            "account": ["acc"] * 8,
+            "partition": ["part"] * 8,
+            "job_name": ["job"] * 8,
+            "command_hash": [f"c_{i}" for i in range(8)],
+            "input_hash": [f"i_{i}" for i in range(8)],
+            "submit_time": [base_time] * 8,
+            "start_time": [base_time] * 8,
+            "end_time": [base_time + timedelta(seconds=60 if i % 2 == 0 else 61) for i in range(8)],
+            "wait_s": [0] * 8,
+            "run_s": [60, 61, 60, 61, 60, 61, 60, 61],
+            "state": [
+                "FAILED",
+                "FAILED",
+                "OUT_OF_MEMORY",
+                "OUT_OF_MEMORY",
+                "TIMEOUT",
+                "TIMEOUT",
+                "CANCELLED",
+                "CANCELLED",
+            ],
+            "exit_code": [1, 1, 125, 125, 0, 0, 0, 0],
+            "req_cpus": [2] * 8,
+            "alloc_cpus": [2] * 8,
+            "cpu_time_used_s": [10.0] * 8,
+            "req_mem_mb": [1000] * 8,
+            "max_rss_mb": [500] * 8,
+            "req_gpus": [0] * 8,
+            "alloc_gpus": [0] * 8,
+            "nodes": [1] * 8,
+            "node_list": ["node1"] * 8,
+            "reserved_core_s": [120, 122, 120, 122, 120, 122, 120, 122],
+            "reserved_mem_mb_s": [60000, 61000, 60000, 61000, 60000, 61000, 60000, 61000],
+        }
+    )
+
+    attr_df = attribute_trace(df)
+    _verify_dataframe_g1(attr_df)
+
+    expected_labels = {
+        "fail_60": "early_failure",
+        "fail_61": "other_failure",
+        "oom_60": "early_failure",
+        "oom_61": "oom",
+        "timeout_60": "early_failure",
+        "timeout_61": "timeout",
+        "canc_60": "early_failure",
+        "canc_61": "cancelled_after_start",
+    }
+    for jid, label in expected_labels.items():
+        assert attr_df.filter(pl.col("job_id") == jid).select("class3_sub_label").item() == label
+
+
+def test_guarantee_g1_cancelled_boundary() -> None:
+    """Verify CANCELLED jobs across run_s = 0, short duration, and long duration."""
+    base_time = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
+
+    df = pl.DataFrame(
+        {
+            "job_id": ["canc_zero", "canc_short", "canc_long"],
+            "parent_job_id": [None, None, None],
+            "source": ["sacct", "sacct", "sacct"],
+            "user": ["u1", "u1", "u1"],
+            "account": ["acc", "acc", "acc"],
+            "partition": ["part", "part", "part"],
+            "job_name": ["job", "job", "job"],
+            "command_hash": ["c1", "c2", "c3"],
+            "input_hash": ["i1", "i2", "i3"],
+            "submit_time": [base_time, base_time, base_time],
+            "start_time": [base_time, base_time, base_time],
+            "end_time": [
+                base_time,
+                base_time + timedelta(seconds=15),
+                base_time + timedelta(seconds=300),
+            ],
+            "wait_s": [0, 0, 0],
+            "run_s": [0, 15, 300],
+            "state": ["CANCELLED", "CANCELLED", "CANCELLED"],
+            "exit_code": [0, 0, 0],
+            "req_cpus": [4, 4, 4],
+            "alloc_cpus": [4, 4, 4],
+            "cpu_time_used_s": [0.0, 10.0, 100.0],
+            "req_mem_mb": [2000, 2000, 2000],
+            "max_rss_mb": [0, 500, 1000],
+            "req_gpus": [0, 0, 0],
+            "alloc_gpus": [0, 0, 0],
+            "nodes": [1, 1, 1],
+            "node_list": ["node1", "node1", "node1"],
+            "reserved_core_s": [0, 60, 1200],
+            "reserved_mem_mb_s": [0, 30000, 600000],
+        }
+    )
+
+    attr_df = attribute_trace(df)
+    _verify_dataframe_g1(attr_df)
+
+    row_zero = attr_df.filter(pl.col("job_id") == "canc_zero")
+    assert row_zero.select("class3_sub_label").item() == "early_failure"
+    assert row_zero.select("class3_core_s").item() == 0
+    assert row_zero.select("reserved_core_s").item() == 0
+
+    row_short = attr_df.filter(pl.col("job_id") == "canc_short")
+    assert row_short.select("class3_sub_label").item() == "early_failure"
+    assert row_short.select("class3_core_s").item() == 60
+
+    row_long = attr_df.filter(pl.col("job_id") == "canc_long")
+    assert row_long.select("class3_sub_label").item() == "cancelled_after_start"
+    assert row_long.select("class3_core_s").item() == 1200
