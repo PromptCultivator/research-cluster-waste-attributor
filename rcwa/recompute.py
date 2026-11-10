@@ -14,10 +14,16 @@ from typing import Any
 import polars as pl
 
 
-def _normalize_dt(dt: datetime | None) -> datetime | None:
-    """Normalize naive or aware datetime to UTC."""
+def _normalize_dt(dt: datetime | str | None) -> datetime | None:
+    """Normalize naive, aware datetime, or ISO string to UTC."""
     if dt is None:
         return None
+    if isinstance(dt, str):
+        try:
+            parsed = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+            return _normalize_dt(parsed)
+        except ValueError:
+            return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
@@ -413,12 +419,14 @@ def evaluate_recomputation_accuracy(
         det_series = pl.Series([False] * joined.height)
 
     # Determine ground truth positive series
-    if "planted_is_recompute" in joined.columns:
+    if "is_recompute_right" in joined.columns:
+        truth_series = joined["is_recompute_right"]
+    elif "planted_is_recompute" in joined.columns:
         truth_series = joined["planted_is_recompute"]
-    elif "is_recompute" in joined.columns:
-        truth_series = joined["is_recompute"]
     elif "true_class" in joined.columns:
         truth_series = joined["true_class"] == 4
+    elif "is_recompute" in joined.columns:
+        truth_series = joined["is_recompute"]
     else:
         truth_series = pl.Series([False] * joined.height)
 
