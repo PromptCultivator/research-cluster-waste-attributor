@@ -411,6 +411,14 @@ def report(
         Path | None,
         typer.Option("--output", "-o", help="Destination report file path."),
     ] = None,
+    policy: Annotated[
+        Path | None,
+        typer.Option("--policy", "-p", help="Rightsizing policy configuration YAML."),
+    ] = None,
+    cluster: Annotated[
+        Path | None,
+        typer.Option("--cluster", "-c", help="Cluster configuration YAML."),
+    ] = None,
 ) -> None:
     """Produce reclaim ranking and queue simulation reports."""
     target = str(trace) if trace else "all results"
@@ -447,9 +455,9 @@ def report(
             canonical_df = loaded_df
         else:
             canonical_df = loaded_df
-            attr_df = attribute_trace(canonical_df)
+            attr_df = attribute_trace(canonical_df, policy=policy)
     else:
-        is_swf_trace = trace_path.suffix.lower() == ".swf"
+        is_swf_trace = trace_path.suffix.lower() in (".swf", ".swf.gz")
         if not is_swf_trace:
             try:
                 head_sample = trace_path.read_text(encoding="utf-8", errors="ignore")[:500]
@@ -462,9 +470,11 @@ def report(
             canonical_df = parse_swf(trace_path)
         else:
             canonical_df = parse_sacct(trace_path)
-        attr_df = attribute_trace(canonical_df)
+        attr_df = attribute_trace(canonical_df, policy=policy)
 
-    report_data = build_report_data(canonical_df, attr_df)
+    report_data = build_report_data(
+        canonical_df, attr_df, policy=policy, cluster=cluster, include_simulation=True
+    )
 
     if fmt == "json":
         rendered = json.dumps(report_data, indent=2)
@@ -493,39 +503,121 @@ def run(
         ),
     ] = None,
     cluster: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--cluster",
             "-c",
             help="Cluster configuration YAML.",
-            exists=True,
             file_okay=True,
             dir_okay=False,
             readable=True,
         ),
-    ] = Path("clusters/example.yaml"),
+    ] = None,
     policy: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--policy",
             "-p",
             help="Policy configuration YAML.",
-            exists=True,
             file_okay=True,
             dir_okay=False,
             readable=True,
         ),
-    ] = Path("policies/default.yaml"),
+    ] = None,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", help="Output directory for reports and tables."),
     ] = Path("data/out"),
 ) -> None:
     """Execute complete attribution, recommendation, simulation, and report pipeline."""
-    target = str(trace) if trace else "default synthetic workload"
+    from rcwa.adapters.sacct import parse_sacct
+    from rcwa.adapters.swf import parse_swf
+    from rcwa.attribute import attribute_trace
+    from rcwa.recommend import export_recommendations, recommend_jobs
+    from rcwa.report import build_report_data, render_csv_report, render_markdown_report
+    from rcwa.simulate import infer_cluster_from_trace, load_cluster_config, simulate_trace
+
+    is_default = trace is None
+    if trace is None:
+        default_candidates = [
+            Path("tests/fixtures/sacct/multiday_cluster.txt"),
+            Path("tests/fixtures/swf/sample_workload.swf"),
+        ]
+        for candidate in default_candidates:
+            if candidate.is_file():
+                trace = candidate
+                break
+
+    if trace is None or not trace.is_file():
+        typer.echo("Error: Trace file required for run pipeline.", err=True)
+        raise typer.Exit(code=1)
+
+    target = "default synthetic workload" if is_default else str(trace)
     typer.echo(
         f"Executing pipeline on {target} -> {output_dir} (cluster={cluster}, policy={policy})"
     )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    trace_path = Path(trace)
+    if trace_path.suffix.lower() == ".parquet":
+        canonical_df = pl.read_parquet(trace_path)
+    else:
+        is_swf_trace = trace_path.suffix.lower() in (".swf", ".swf.gz")
+        if not is_swf_trace:
+            try:
+                head_sample = trace_path.read_text(encoding="utf-8", errors="ignore")[:500]
+                if not any("|" in line for line in head_sample.splitlines() if line.strip()):
+                    is_swf_trace = True
+            except OSError:
+                pass
+        if is_swf_trace:
+            canonical_df = parse_swf(trace_path)
+        else:
+            canonical_df = parse_sacct(trace_path)
+
+    canonical_df.write_parquet(output_dir / "canonical.parquet")
+
+    # Attribution
+    attr_df = attribute_trace(canonical_df, policy=policy)
+    attr_df.write_parquet(output_dir / "attributed.parquet")
+
+    # Recommendations
+    recs_df = recommend_jobs(
+        attr_df, policy=policy, trace_path=output_dir / "recommendations.parquet"
+    )
+    export_recommendations(recs_df, output_dir / "recommendations.parquet", format="parquet")
+    export_recommendations(recs_df, output_dir / "recommendations.csv", format="csv")
+
+    # Cluster configuration
+    if cluster is not None:
+        cluster_cfg = load_cluster_config(cluster)
+    else:
+        cluster_cfg = infer_cluster_from_trace(canonical_df)
+
+    # Simulation baseline
+    sim_baseline_df, _ = simulate_trace(
+        canonical_df, cluster=cluster_cfg, scenario="baseline", policy=policy
+    )
+    sim_baseline_df.write_parquet(output_dir / "simulated_baseline.parquet")
+
+    # Report compilation
+    report_data = build_report_data(
+        canonical_df,
+        attr_df,
+        policy=policy,
+        cluster=cluster_cfg,
+        include_simulation=True,
+    )
+
+    # Write report outputs
+    (output_dir / "report.json").write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+    md_content = render_markdown_report(report_data)
+    (output_dir / "report.md").write_text(md_content, encoding="utf-8")
+    csv_content = render_csv_report(report_data)
+    (output_dir / "report.csv").write_text(csv_content, encoding="utf-8")
+
+    typer.echo(md_content)
 
 
 if __name__ == "__main__":

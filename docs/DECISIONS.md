@@ -106,3 +106,12 @@ This document records technical decisions made during implementation where choic
 - **Rationale**: Downstream validation harnesses and invariant validators execute integer casting on timestamps. Representing timestamps as integer seconds ensures compatibility with schedule validity assertions. Inferring topology from observed peak resource requests ensures that trace simulation can execute without requiring manual cluster definition files while ensuring no job exceeds node capacity limits.
 - **Guarantee Maintained**: Guarantee G4 (Simulation Validity).
 
+---
+
+### DEC-014: Reporting Pipeline Integration and SWF Recomputation Handling
+- **Date**: 2026-11-09
+- **Decision**: Execute all six counterfactual simulation scenarios automatically when compiling reports unless explicit scenario maps are supplied; for Standard Workload Format (SWF) traces lacking input checksum declarations, explicitly record Class 4 redundant recomputation as "not available" across JSON and Markdown outputs, and suppress the result cache table in Markdown when savings are zero.
+- **Rationale**: Providing automated execution of all counterfactual scenarios in `rcwa report` and `rcwa run` produces complete evaluation metrics without secondary invocations. Honoring the specification requirement that SWF traces never estimate unverified recomputations prevents speculative waste attribution while providing auditable status across all reporting formats.
+- **Guarantee Maintained**: Guarantee G1 (Conservation) and Guarantee G3 (Determinism).
+
+

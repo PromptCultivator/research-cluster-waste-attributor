@@ -158,18 +158,28 @@ def build_report_data(
         else:
             ev_ids = []
 
+        rec_core = round(
+            float(r.get("reclaimable_core_hours") or r.get("reclaim_core_hours") or 0.0), 2
+        )
+        rec_gb = round(float(r.get("reclaimable_gb_hours") or r.get("reclaim_gb_hours") or 0.0), 2)
+        score = round(float(r.get("reclaim_score") or r.get("score") or 0.0), 2)
+        rec_action = str(
+            r.get("recommendation_action") or r.get("recommendation_direction") or "none"
+        )
+
         rec_entry: dict[str, Any] = {
             "rank": idx,
             "group": grp_name,
             "count": int(r.get("job_count") or r.get("count") or 0),
-            "reclaim_core_hours": round(float(r.get("reclaim_core_hours") or 0.0), 2),
-            "reclaim_gb_hours": round(float(r.get("reclaim_gb_hours") or 0.0), 2),
-            "score": round(float(r.get("score") or 0.0), 2),
+            "reclaim_core_hours": rec_core,
+            "reclaim_gb_hours": rec_gb,
+            "score": score,
             "recommendation": {
                 "req_mem_mb": r.get("recommended_req_mem_mb"),
                 "cpus": r.get("recommended_cpus"),
                 "direction": r.get("recommendation_direction"),
             },
+            "recommendation_action": rec_action,
             "evidence_job_ids": ev_ids,
         }
         ranked_reclaim_list.append(rec_entry)
@@ -216,6 +226,72 @@ def build_report_data(
             dim_grouped = group_jobs(attributed_df, group_keys=[dim], policy=policy)
             secondary_rollups[dim] = dim_grouped.to_dicts()
 
+    # Dynamic simulation scenarios
+    if simulation_scenarios is not None:
+        scenarios_data = simulation_scenarios
+    elif include_simulation and evaluated_jobs > 0:
+        from rcwa.simulate import infer_cluster_from_trace, load_cluster_config, simulate_trace
+
+        if cluster is not None:
+            cluster_cfg = load_cluster_config(cluster)
+        else:
+            cluster_cfg = infer_cluster_from_trace(canonical_df)
+
+        scenarios_data = {}
+        for sc in [
+            "baseline",
+            "mem_rightsized",
+            "cpu_rightsized_none",
+            "cpu_rightsized_proportional",
+            "cache_dedup",
+            "all",
+        ]:
+            try:
+                _, s_metrics = simulate_trace(
+                    canonical_df, cluster=cluster_cfg, scenario=sc, policy=policy
+                )
+                scenarios_data[sc] = {
+                    "median_wait_s": float(s_metrics.get("median_wait_s", 0.0)),
+                    "p95_wait_s": float(s_metrics.get("p95_wait_s", 0.0)),
+                    "makespan_s": int(s_metrics.get("makespan_s", 0)),
+                    "core_utilization_pct": round(
+                        float(s_metrics.get("core_utilization", 0.0)) * 100.0, 1
+                    ),
+                    "memory_utilization_pct": round(
+                        float(s_metrics.get("mem_utilization", 0.0)) * 100.0, 1
+                    ),
+                    "jobs_per_day": float(s_metrics.get("jobs_completed_per_day", 0.0)),
+                }
+            except Exception:
+                pass
+    else:
+        scenarios_data = {}
+
+    # Dynamic calibration metrics
+    if calibration is not None:
+        calib_data = calibration
+    elif include_simulation and evaluated_jobs > 0 and "wait_s" in canonical_df.columns:
+        from rcwa.calibrate import compute_calibration_metrics
+        from rcwa.simulate import infer_cluster_from_trace, load_cluster_config, simulate_trace
+
+        if cluster is not None:
+            cluster_cfg = load_cluster_config(cluster)
+        else:
+            cluster_cfg = infer_cluster_from_trace(canonical_df)
+        try:
+            sim_df, _ = simulate_trace(
+                canonical_df, cluster=cluster_cfg, scenario="baseline", policy=policy
+            )
+            calib_res = compute_calibration_metrics(sim_df, canonical_df)
+            calib_data = {
+                "median_absolute_error_s": float(calib_res.get("median_absolute_error_s", 0.0)),
+                "spearman_rank_correlation": float(calib_res.get("spearman_rank_correlation", 0.0)),
+            }
+        except Exception:
+            calib_data = {}
+    else:
+        calib_data = {}
+
     report: dict[str, Any] = {
         "summary": summary,
         "waste_classification": waste_classification,
@@ -224,60 +300,8 @@ def build_report_data(
         "early_failure_groups": early_failure_groups,
         "result_cache": cache_sim,
         "secondary_rollups": secondary_rollups,
-        "simulation_scenarios": {
-            "baseline": {
-                "median_wait_s": 12.0,
-                "p95_wait_s": 45.0,
-                "makespan_s": 518400,
-                "core_utilization_pct": 62.4,
-                "memory_utilization_pct": 54.1,
-                "jobs_per_day": 2.57,
-            },
-            "mem_rightsized": {
-                "median_wait_s": 8.0,
-                "p95_wait_s": 32.0,
-                "makespan_s": 482000,
-                "core_utilization_pct": 67.1,
-                "memory_utilization_pct": 76.5,
-                "jobs_per_day": 2.76,
-            },
-            "cpu_rightsized_none": {
-                "median_wait_s": 7.0,
-                "p95_wait_s": 28.0,
-                "makespan_s": 460000,
-                "core_utilization_pct": 78.3,
-                "memory_utilization_pct": 75.8,
-                "jobs_per_day": 2.89,
-            },
-            "cpu_rightsized_proportional": {
-                "median_wait_s": 9.0,
-                "p95_wait_s": 35.0,
-                "makespan_s": 490000,
-                "core_utilization_pct": 73.5,
-                "memory_utilization_pct": 72.0,
-                "jobs_per_day": 2.72,
-            },
-            "cache_dedup": {
-                "median_wait_s": 10.0,
-                "p95_wait_s": 38.0,
-                "makespan_s": 495000,
-                "core_utilization_pct": 65.0,
-                "memory_utilization_pct": 56.0,
-                "jobs_per_day": 2.69,
-            },
-            "all": {
-                "median_wait_s": 5.0,
-                "p95_wait_s": 20.0,
-                "makespan_s": 410000,
-                "core_utilization_pct": 82.5,
-                "memory_utilization_pct": 85.0,
-                "jobs_per_day": 3.24,
-            },
-        },
-        "calibration": {
-            "median_absolute_error_s": 4.5,
-            "spearman_rank_correlation": 0.892,
-        },
+        "simulation_scenarios": scenarios_data,
+        "calibration": calib_data,
     }
 
     return _round_floats(report, digits=6)
@@ -354,10 +378,13 @@ def render_markdown_report(report_data: dict[str, Any]) -> str:
 
     c4_c_pct = 100 * c4_core / total_core
     c4_g_pct = 100 * c4_gb / total_gb
-    lines.append(
-        f"| Class 4: Redundant Recomputation | {c4_core:.2f} | {c4_c_pct:.2f}% | "
-        f"{c4_gb:.2f} | {c4_g_pct:.2f}% |"
-    )
+    if waste.get("class4_status") == "not available":
+        lines.append("| Class 4: Redundant Recomputation | not available | - | not available | - |")
+    else:
+        lines.append(
+            f"| Class 4: Redundant Recomputation | {c4_core:.2f} | {c4_c_pct:.2f}% | "
+            f"{c4_gb:.2f} | {c4_g_pct:.2f}% |"
+        )
 
     used_c_pct = 100 * used_core / total_core
     used_g_pct = 100 * used_gb / total_gb
@@ -387,8 +414,29 @@ def render_markdown_report(report_data: dict[str, Any]) -> str:
         rec_gb = float(r.get("reclaim_gb_hours", 0.0))
         score = float(r.get("score", 0.0))
         rec = r.get("recommendation") or {}
-        rec_str = f"req_mem_mb={rec.get('req_mem_mb')}M, cpus={rec.get('cpus')}"
-        ev_str = ", ".join(r.get("evidence_job_ids", []))
+        action = str(r.get("recommendation_action") or rec.get("direction") or "none")
+        mem = rec.get("req_mem_mb")
+        cpus = rec.get("cpus")
+        if action == "below_sample_floor" or rec.get("direction") == "below_sample_floor":
+            rec_str = "None (< min_samples)"
+        elif action in ("oom_increase_mem", "oom_escalation") or (
+            rec.get("direction") == "increase" and mem is not None and cpus is None
+        ):
+            rec_str = f"req_mem_mb={mem}M (OOM escalation)"
+        elif mem is not None or cpus is not None:
+            parts = []
+            if mem is not None:
+                parts.append(f"req_mem_mb={mem}M")
+            if cpus is not None:
+                parts.append(f"cpus={cpus}")
+            rec_str = ", ".join(parts)
+        else:
+            rec_str = "None"
+        ev_raw = r.get("evidence_job_ids", [])
+        if isinstance(ev_raw, list):
+            ev_str = ", ".join(str(x) for x in ev_raw)
+        else:
+            ev_str = str(ev_raw)
         lines.append(
             f"| {rank} | {grp} | {cnt} | {rec_core:.2f} | {rec_gb:.2f} | "
             f"{score:.2f} | {rec_str} | {ev_str} |"
@@ -404,6 +452,91 @@ def render_markdown_report(report_data: dict[str, Any]) -> str:
     input_cov = quality.get("declared_input_coverage_pct", 0.0)
     lines.append(f"- Declared Input Coverage: {input_cov:.2f}%")
     lines.append("")
+
+    early_failures = report_data.get("early_failure_groups", [])
+    if early_failures:
+        lines.append("## Early Failure Groups")
+        lines.append("| Group | Failures | Total | Share % | Sample Exit Codes |")
+        lines.append("|---|---|---|---|---|")
+        for ef in early_failures:
+            grp = ef.get("group", "")
+            fc = ef.get("failure_count", 0)
+            tot = ef.get("total_jobs", 0)
+            pct = 100.0 * float(ef.get("failure_share", 0.0))
+            codes = ", ".join(str(c) for c in ef.get("sample_exit_codes", []))
+            lines.append(f"| {grp} | {fc} | {tot} | {pct:.2f}% | {codes} |")
+        lines.append("")
+
+    cache_res = report_data.get("result_cache", [])
+    if isinstance(cache_res, list) and any(r.get("recommended") for r in cache_res):
+        recommended_caches = [r for r in cache_res if r.get("recommended")]
+        lines.append("## Result Cache Recommendations")
+        lines.append(
+            "| Group | Completed Jobs | Cache Hits | Hit Rate % | "
+            "Reclaim Core-Hours | Reclaim GB-Hours |"
+        )
+        lines.append("|---|---|---|---|---|---|")
+        for c in recommended_caches:
+            grp = c.get("group", "")
+            tc = c.get("total_completed_jobs", 0)
+            hits = c.get("cache_hits", 0)
+            hr = float(c.get("hit_rate", 0.0)) * 100.0
+            r_c = float(c.get("reclaimable_core_hours", 0.0))
+            r_g = float(c.get("reclaimable_gb_hours", 0.0))
+            lines.append(f"| {grp} | {tc} | {hits} | {hr:.1f}% | {r_c:.2f} | {r_g:.2f} |")
+        lines.append("")
+    elif isinstance(cache_res, dict) and cache_res.get("recomputation_groups_count", 0) > 0:
+        lines.append("## Result Cache Recommendations")
+        lines.append(
+            f"- Recomputation Groups Detected: {cache_res.get('recomputation_groups_count', 0)}"
+        )
+        hr = float(cache_res.get("cache_hit_rate_pct", 0.0))
+        lines.append(f"- Simulated Cache Hit Rate: {hr:.2f}%")
+        rc_c = float(cache_res.get("reclaimable_core_hours", 0.0))
+        lines.append(f"- Reclaimable Redundant Core-Hours: {rc_c:.2f}")
+        rc_g = float(cache_res.get("reclaimable_gb_hours", 0.0))
+        lines.append(f"- Reclaimable Redundant GB-Hours: {rc_g:.2f}")
+        lines.append("")
+
+    scenarios = report_data.get("simulation_scenarios", {})
+    if scenarios:
+        lines.append("## Simulation Scenarios")
+        lines.append(
+            "| Scenario | Median Wait (s) | P95 Wait (s) | Makespan (s) | "
+            "Core Utilization % | Memory Utilization % | Jobs/Day |"
+        )
+        lines.append("|---|---|---|---|---|---|---|")
+        for sc_name in [
+            "baseline",
+            "mem_rightsized",
+            "cpu_rightsized_none",
+            "cpu_rightsized_proportional",
+            "cache_dedup",
+            "all",
+        ]:
+            if sc_name in scenarios:
+                sc = scenarios[sc_name]
+                med = float(sc.get("median_wait_s", 0.0))
+                p95 = float(sc.get("p95_wait_s", 0.0))
+                ms = int(sc.get("makespan_s", 0))
+                cu = float(sc.get("core_utilization_pct", 0.0))
+                mu = float(sc.get("memory_utilization_pct", 0.0))
+                jpd = float(sc.get("jobs_per_day", 0.0))
+                lines.append(
+                    f"| {sc_name} | {med:.1f} | {p95:.1f} | {ms} | "
+                    f"{cu:.1f}% | {mu:.1f}% | {jpd:.2f} |"
+                )
+        lines.append("")
+
+    calib = report_data.get("calibration", {})
+    if calib:
+        lines.append("## Calibration Metrics")
+        lines.append("- Historical Baseline Calibration Error:")
+        mae = float(calib.get("median_absolute_error_s", 0.0))
+        lines.append(f"  - Median Absolute Error: {mae:.2f} s")
+        rho = float(calib.get("spearman_rank_correlation", 0.0))
+        lines.append(f"  - Spearman Rank Correlation: {rho:.3f}")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -438,8 +571,12 @@ def render_csv_report(report_data: dict[str, Any]) -> str:
         rec_gb = f"{float(r.get('reclaim_gb_hours', 0.0)):.2f}"
         score = f"{float(r.get('score', 0.0)):.2f}"
         rec = r.get("recommendation") or {}
-        action = rec.get("direction") or "none"
-        ev_ids = ";".join(r.get("evidence_job_ids", []))
+        action = str(r.get("recommendation_action") or rec.get("direction") or "none")
+        ev_raw = r.get("evidence_job_ids", [])
+        if isinstance(ev_raw, list):
+            ev_ids = ";".join(str(x) for x in ev_raw)
+        else:
+            ev_ids = str(ev_raw)
         rows.append(f'{rank},{grp},{cnt},{rec_core},{rec_gb},{score},{action},"{ev_ids}"')
 
     return "\n".join(rows) + "\n"

@@ -1,0 +1,415 @@
+{
+  "calibration": {
+    "median_absolute_error_s": 10.0,
+    "spearman_rank_correlation": 0.0
+  },
+  "data_quality": {
+    "declared_input_coverage_pct": 0.0,
+    "excluded_active_count": 0,
+    "unattributed_cpu_share_pct": 0.0,
+    "unattributed_memory_share_pct": 0.0
+  },
+  "early_failure_groups": [],
+  "ranked_reclaim_list": [
+    {
+      "count": 3,
+      "evidence_job_ids": [
+        "7",
+        "3",
+        "1"
+      ],
+      "group": "1/1",
+      "rank": 1,
+      "reclaim_core_hours": 0.28,
+      "reclaim_gb_hours": 2.81,
+      "recommendation": {
+        "cpus": null,
+        "direction": "none",
+        "req_mem_mb": null
+      },
+      "recommendation_action": "below_sample_floor",
+      "score": 0.98
+    },
+    {
+      "count": 2,
+      "evidence_job_ids": [
+        "4",
+        "8"
+      ],
+      "group": "3/3",
+      "rank": 2,
+      "reclaim_core_hours": 0.13,
+      "reclaim_gb_hours": 1.11,
+      "recommendation": {
+        "cpus": null,
+        "direction": "none",
+        "req_mem_mb": null
+      },
+      "recommendation_action": "below_sample_floor",
+      "score": 0.41
+    },
+    {
+      "count": 3,
+      "evidence_job_ids": [
+        "2",
+        "5",
+        "9"
+      ],
+      "group": "2/2",
+      "rank": 3,
+      "reclaim_core_hours": 0.17,
+      "reclaim_gb_hours": 0.74,
+      "recommendation": {
+        "cpus": null,
+        "direction": "none",
+        "req_mem_mb": null
+      },
+      "recommendation_action": "below_sample_floor",
+      "score": 0.35
+    },
+    {
+      "count": 2,
+      "evidence_job_ids": [
+        "10",
+        "6"
+      ],
+      "group": "4/4",
+      "rank": 4,
+      "reclaim_core_hours": 0.11,
+      "reclaim_gb_hours": 0.58,
+      "recommendation": {
+        "cpus": null,
+        "direction": "none",
+        "req_mem_mb": null
+      },
+      "recommendation_action": "below_sample_floor",
+      "score": 0.25
+    }
+  ],
+  "result_cache": [
+    {
+      "cache_hits": 0,
+      "group": "1/1",
+      "group_class4_share": 0.0,
+      "hit_rate": 0.0,
+      "reclaimable_core_hours": 0.0,
+      "reclaimable_gb_hours": 0.0,
+      "recommended": false,
+      "total_completed_jobs": 3
+    },
+    {
+      "cache_hits": 0,
+      "group": "2/2",
+      "group_class4_share": 0.0,
+      "hit_rate": 0.0,
+      "reclaimable_core_hours": 0.0,
+      "reclaimable_gb_hours": 0.0,
+      "recommended": false,
+      "total_completed_jobs": 3
+    },
+    {
+      "cache_hits": 0,
+      "group": "3/3",
+      "group_class4_share": 0.0,
+      "hit_rate": 0.0,
+      "reclaimable_core_hours": 0.0,
+      "reclaimable_gb_hours": 0.0,
+      "recommended": false,
+      "total_completed_jobs": 2
+    },
+    {
+      "cache_hits": 0,
+      "group": "4/4",
+      "group_class4_share": 0.0,
+      "hit_rate": 0.0,
+      "reclaimable_core_hours": 0.0,
+      "reclaimable_gb_hours": 0.0,
+      "recommended": false,
+      "total_completed_jobs": 2
+    }
+  ],
+  "secondary_rollups": {
+    "account": [
+      {
+        "class1_over_mem_gb_hours": 3.55,
+        "class2_idle_core_hours": 0.444444,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 0.632353,
+        "cluster_waste_score_share": 0.667827,
+        "evidence_job_ids": [
+          "7",
+          "2",
+          "5",
+          "3",
+          "1"
+        ],
+        "group": "1",
+        "has_oom": false,
+        "job_count": 6,
+        "reclaim_score": 1.331944,
+        "reclaimable_core_hours": 0.444444,
+        "reclaimable_gb_hours": 3.55,
+        "sample_count_ok": true,
+        "score": 1.331944,
+        "total_reserved_core_hours": 2.388889,
+        "total_reserved_gb_hours": 7.1,
+        "total_used_core_hours": 1.944444,
+        "total_used_gb_hours": 3.55,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      },
+      {
+        "class1_over_mem_gb_hours": 1.694444,
+        "class2_idle_core_hours": 0.238889,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 0.367647,
+        "cluster_waste_score_share": 0.332173,
+        "evidence_job_ids": [
+          "4",
+          "10",
+          "8",
+          "6"
+        ],
+        "group": "2",
+        "has_oom": false,
+        "job_count": 4,
+        "reclaim_score": 0.6625,
+        "reclaimable_core_hours": 0.238889,
+        "reclaimable_gb_hours": 1.694444,
+        "sample_count_ok": false,
+        "score": 0.6625,
+        "total_reserved_core_hours": 1.388889,
+        "total_reserved_gb_hours": 3.388889,
+        "total_used_core_hours": 1.15,
+        "total_used_gb_hours": 1.694444,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      }
+    ],
+    "partition": [
+      {
+        "class1_over_mem_gb_hours": 5.244444,
+        "class2_idle_core_hours": 0.683333,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 1.0,
+        "cluster_waste_score_share": 1.0,
+        "evidence_job_ids": [
+          "7",
+          "4",
+          "10",
+          "2",
+          "8"
+        ],
+        "group": "1",
+        "has_oom": false,
+        "job_count": 10,
+        "reclaim_score": 1.994444,
+        "reclaimable_core_hours": 0.683333,
+        "reclaimable_gb_hours": 5.244444,
+        "sample_count_ok": true,
+        "score": 1.994444,
+        "total_reserved_core_hours": 3.777778,
+        "total_reserved_gb_hours": 10.488889,
+        "total_used_core_hours": 3.094444,
+        "total_used_gb_hours": 5.244444,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      }
+    ],
+    "user": [
+      {
+        "class1_over_mem_gb_hours": 2.805556,
+        "class2_idle_core_hours": 0.277778,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 0.426471,
+        "cluster_waste_score_share": 0.490947,
+        "evidence_job_ids": [
+          "7",
+          "3",
+          "1"
+        ],
+        "group": "1",
+        "has_oom": false,
+        "job_count": 3,
+        "reclaim_score": 0.979167,
+        "reclaimable_core_hours": 0.277778,
+        "reclaimable_gb_hours": 2.805556,
+        "sample_count_ok": false,
+        "score": 0.979167,
+        "total_reserved_core_hours": 1.611111,
+        "total_reserved_gb_hours": 5.611111,
+        "total_used_core_hours": 1.333333,
+        "total_used_gb_hours": 2.805556,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      },
+      {
+        "class1_over_mem_gb_hours": 1.111111,
+        "class2_idle_core_hours": 0.133333,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 0.2,
+        "cluster_waste_score_share": 0.206128,
+        "evidence_job_ids": [
+          "4",
+          "8"
+        ],
+        "group": "3",
+        "has_oom": false,
+        "job_count": 2,
+        "reclaim_score": 0.411111,
+        "reclaimable_core_hours": 0.133333,
+        "reclaimable_gb_hours": 1.111111,
+        "sample_count_ok": false,
+        "score": 0.411111,
+        "total_reserved_core_hours": 0.755556,
+        "total_reserved_gb_hours": 2.222222,
+        "total_used_core_hours": 0.622222,
+        "total_used_gb_hours": 1.111111,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      },
+      {
+        "class1_over_mem_gb_hours": 0.744444,
+        "class2_idle_core_hours": 0.166667,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 0.205882,
+        "cluster_waste_score_share": 0.17688,
+        "evidence_job_ids": [
+          "2",
+          "5",
+          "9"
+        ],
+        "group": "2",
+        "has_oom": false,
+        "job_count": 3,
+        "reclaim_score": 0.352778,
+        "reclaimable_core_hours": 0.166667,
+        "reclaimable_gb_hours": 0.744444,
+        "sample_count_ok": false,
+        "score": 0.352778,
+        "total_reserved_core_hours": 0.777778,
+        "total_reserved_gb_hours": 1.488889,
+        "total_used_core_hours": 0.611111,
+        "total_used_gb_hours": 0.744444,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      },
+      {
+        "class1_over_mem_gb_hours": 0.583333,
+        "class2_idle_core_hours": 0.105556,
+        "class3_failed_core_hours": 0.0,
+        "class3_failed_gb_hours": 0.0,
+        "class4_recompute_core_hours": 0.0,
+        "class4_recompute_gb_hours": 0.0,
+        "cluster_reserved_core_share": 0.167647,
+        "cluster_waste_score_share": 0.126045,
+        "evidence_job_ids": [
+          "10",
+          "6"
+        ],
+        "group": "4",
+        "has_oom": false,
+        "job_count": 2,
+        "reclaim_score": 0.251389,
+        "reclaimable_core_hours": 0.105556,
+        "reclaimable_gb_hours": 0.583333,
+        "sample_count_ok": false,
+        "score": 0.251389,
+        "total_reserved_core_hours": 0.633333,
+        "total_reserved_gb_hours": 1.166667,
+        "total_used_core_hours": 0.527778,
+        "total_used_gb_hours": 0.583333,
+        "unattributed_core_hours": 0.0,
+        "unattributed_gb_hours": 0.0
+      }
+    ]
+  },
+  "simulation_scenarios": {
+    "all": {
+      "core_utilization_pct": 6.0,
+      "jobs_per_day": 1963.64,
+      "makespan_s": 440,
+      "median_wait_s": 0.0,
+      "memory_utilization_pct": 4.2,
+      "p95_wait_s": 0.0
+    },
+    "baseline": {
+      "core_utilization_pct": 6.0,
+      "jobs_per_day": 1963.64,
+      "makespan_s": 440,
+      "median_wait_s": 0.0,
+      "memory_utilization_pct": 4.2,
+      "p95_wait_s": 0.0
+    },
+    "cache_dedup": {
+      "core_utilization_pct": 6.0,
+      "jobs_per_day": 1963.64,
+      "makespan_s": 440,
+      "median_wait_s": 0.0,
+      "memory_utilization_pct": 4.2,
+      "p95_wait_s": 0.0
+    },
+    "cpu_rightsized_none": {
+      "core_utilization_pct": 6.0,
+      "jobs_per_day": 1963.64,
+      "makespan_s": 440,
+      "median_wait_s": 0.0,
+      "memory_utilization_pct": 4.2,
+      "p95_wait_s": 0.0
+    },
+    "cpu_rightsized_proportional": {
+      "core_utilization_pct": 6.0,
+      "jobs_per_day": 1963.64,
+      "makespan_s": 440,
+      "median_wait_s": 0.0,
+      "memory_utilization_pct": 4.2,
+      "p95_wait_s": 0.0
+    },
+    "mem_rightsized": {
+      "core_utilization_pct": 6.0,
+      "jobs_per_day": 1963.64,
+      "makespan_s": 440,
+      "median_wait_s": 0.0,
+      "memory_utilization_pct": 4.2,
+      "p95_wait_s": 0.0
+    }
+  },
+  "summary": {
+    "evaluated_jobs": 10,
+    "excluded_jobs": 0,
+    "total_jobs": 10,
+    "total_reserved_core_hours": 3.78,
+    "total_reserved_gb_hours": 10.49,
+    "total_used_core_hours": 3.09,
+    "total_used_gb_hours": 5.24
+  },
+  "waste_classification": {
+    "class1_memory_over_request_gb_hours": 5.24,
+    "class2_idle_cpu_core_hours": 0.68,
+    "class3_failed_work_core_hours": 0.0,
+    "class3_failed_work_gb_hours": 0.0,
+    "class4_redundant_core_hours": 0.0,
+    "class4_redundant_gb_hours": 0.0,
+    "class4_status": "not available",
+    "unattributed_cpu_core_hours": 0.0,
+    "unattributed_memory_gb_hours": 0.0
+  }
+}

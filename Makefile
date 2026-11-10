@@ -46,7 +46,13 @@ bench-smoke:
 	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --runs $(RUNS)
 
 goldens:
-	@echo "Golden diff verification target (Phase 6)"
+	$(PYTHON) -m rcwa.cli report tests/fixtures/sacct/multiday_cluster.txt --format json --output tests/fixtures/golden/golden_report.json
+	$(PYTHON) -m rcwa.cli report tests/fixtures/sacct/multiday_cluster.txt --format markdown --output tests/fixtures/golden/golden_report.md
+	$(PYTHON) -m rcwa.cli report tests/fixtures/sacct/multiday_cluster.txt --format csv --output tests/fixtures/golden/golden_report.csv
+	$(PYTHON) -m rcwa.cli report tests/fixtures/swf/sample_workload.swf --format json --output tests/fixtures/golden/golden_swf_report.json
+	$(PYTHON) -m rcwa.cli report tests/fixtures/swf/sample_workload.swf --format markdown --output tests/fixtures/golden/golden_swf_report.md
+	$(PYTHON) -m rcwa.cli report tests/fixtures/swf/sample_workload.swf --format csv --output tests/fixtures/golden/golden_swf_report.csv
+	git diff tests/fixtures/golden/
 
 docker:
 	docker build -t rcwa:latest .

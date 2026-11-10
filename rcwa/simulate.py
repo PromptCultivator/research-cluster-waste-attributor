@@ -122,15 +122,17 @@ class JobSpec:
         self.allocated_nodes: list[tuple[int, int, int]] = []
 
 
-def load_cluster_config(cluster_path: Path | str | None) -> ClusterConfig:
+def load_cluster_config(cluster_path: Path | str | ClusterConfig | None) -> ClusterConfig:
     """Load cluster specification from YAML configuration.
 
     Args:
-        cluster_path: Path to YAML cluster configuration file.
+        cluster_path: Path to YAML cluster configuration file or existing ClusterConfig.
 
     Returns:
         Loaded ClusterConfig instance.
     """
+    if isinstance(cluster_path, ClusterConfig):
+        return cluster_path
     if cluster_path is None:
         return ClusterConfig(
             name="default_cluster",
