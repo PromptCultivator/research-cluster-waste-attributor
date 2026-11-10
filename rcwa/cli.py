@@ -176,81 +176,13 @@ def attribute(
         else:
             df = parse_sacct(trace)
 
-    # Exclude RUNNING and PENDING rows from attribution (SPEC section 5.3)
-    df = df.filter(~pl.col("state").is_in(["RUNNING", "PENDING"]))
+    from rcwa.attribute import attribute_trace, export_attributed_records
 
-    failed_states = {"FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED"}
-
-    class3_sub_labels: list[str | None] = []
-    class4_core_s_list: list[int] = []
-    possible_recompute_list: list[bool] = []
-
-    seen_completed_inputs: set[tuple[str, str]] = set()
-    seen_completed_commands: set[str] = set()
-
-    for row in df.iter_rows(named=True):
-        st = row["state"]
-        run_s = row["run_s"]
-        cmd_h = row["command_hash"]
-        inp_h = row["input_hash"]
-        res_core = row["reserved_core_s"]
-
-        is_failed = (st in failed_states) or (st == "CANCELLED" and run_s > 0)
-        if is_failed:
-            if run_s <= 60:
-                sub_label = "early_failure"
-            elif st == "OUT_OF_MEMORY":
-                sub_label = "oom"
-            elif st == "TIMEOUT":
-                sub_label = "timeout"
-            elif st == "NODE_FAIL":
-                sub_label = "node_fail"
-            elif st == "CANCELLED":
-                sub_label = "cancelled_after_start"
-            else:
-                sub_label = "other_failure"
-            class3_sub_labels.append(sub_label)
-            class4_core_s_list.append(0)
-            possible_recompute_list.append(False)
-        else:
-            class3_sub_labels.append(None)
-
-            if st == "COMPLETED":
-                if inp_h and cmd_h:
-                    pair = (cmd_h, inp_h)
-                    if pair in seen_completed_inputs:
-                        class4_core_s_list.append(res_core)
-                        possible_recompute_list.append(False)
-                    else:
-                        seen_completed_inputs.add(pair)
-                        class4_core_s_list.append(0)
-                        possible_recompute_list.append(False)
-                elif cmd_h and not inp_h:
-                    if cmd_h in seen_completed_commands:
-                        class4_core_s_list.append(0)
-                        possible_recompute_list.append(True)
-                    else:
-                        seen_completed_commands.add(cmd_h)
-                        class4_core_s_list.append(0)
-                        possible_recompute_list.append(False)
-                else:
-                    class4_core_s_list.append(0)
-                    possible_recompute_list.append(False)
-            else:
-                class4_core_s_list.append(0)
-                possible_recompute_list.append(False)
-
-    df = df.with_columns(
-        [
-            pl.Series("class3_sub_label", class3_sub_labels, dtype=pl.String),
-            pl.Series("class4_core_s", class4_core_s_list, dtype=pl.Int64),
-            pl.Series("possible_recompute", possible_recompute_list, dtype=pl.Boolean),
-        ]
-    )
+    attr_df = attribute_trace(df, policy=policy)
 
     if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        df.write_parquet(output)
+        fmt = "csv" if output.suffix.lower() == ".csv" else "parquet"
+        export_attributed_records(attr_df, output, format=fmt)
 
 
 @app.command()
@@ -284,6 +216,20 @@ def recommend(
 ) -> None:
     """Generate right-sized CPU and memory resource recommendations with guardrails."""
     typer.echo(f"Generating recommendations from {attributed} with {policy} (output={output})")
+
+    from rcwa.groups import export_group_metrics, group_jobs
+    from rcwa.model import empty_canonical_df
+
+    try:
+        attr_df = pl.read_parquet(attributed)
+    except Exception:
+        attr_df = empty_canonical_df()
+
+    groups_df = group_jobs(attr_df, policy=policy)
+
+    if output is not None:
+        fmt = "csv" if output.suffix.lower() == ".csv" else "parquet"
+        export_group_metrics(groups_df, output, format=fmt)
 
 
 @app.command()

@@ -50,4 +50,28 @@ This document records technical decisions made during implementation where choic
 - **Rationale**: Immediate import of `pyarrow` and `pydantic` introduces ~240ms of interpreter startup overhead per CLI invocation. Deferring Arrow schema construction and Pydantic model compilation enables CLI ingestion commands to execute at over 700 jobs/s even on small 100-job batches while maintaining full type safety in static analysis via `TYPE_CHECKING` guards.
 - **Guarantee Maintained**: Ingestion throughput targets and reproducible sub-second CLI invocations.
 
+---
+
+### DEC-007: Conservation Precedence Hierarchy Implementation
+- **Date**: 2026-11-09
+- **Decision**: Enforce single-pass precedence ordering: Class 3 (failed work) -> Class 4 (recomputation) -> Class 2 (idle CPU) and Class 1 (memory over-request) -> Utilized.
+- **Rationale**: When multiple conditions coincide (such as a job that failed after recomputing prior inputs), allocating resources to multiple categories would violate conservation or double-count losses. Attributing failed jobs entirely to Class 3 ensures auditable, non-overlapping partitions.
+- **Guarantee Maintained**: Guarantee G1 (Conservation) across individual jobs and cluster-wide aggregations.
+
+---
+
+### DEC-008: Non-Null Memory Reservation Normalization for Conservation Arithmetic
+- **Date**: 2026-11-09
+- **Decision**: Normalize null memory reservations to 0 in `attribute_trace` prior to conservation checks.
+- **Rationale**: Unspecified job memory requests (`ReqMem=?`) yield null reservation values in raw canonical records. Evaluating arithmetic on null values in conservation checkers leads to TypeErrors. Replacing null with 0 ensures every memory component evaluates to valid integer megabyte-seconds where `0 == 0 + 0 + 0 + 0 + 0`.
+- **Guarantee Maintained**: Guarantee G1 arithmetic validation without TypeErrors.
+
+---
+
+### DEC-009: 1-to-1 Temporal Earliest Candidate Claiming for Retry Chains
+- **Date**: 2026-11-09
+- **Decision**: Assign failure retry links such that the earliest candidate resubmission (ordered by submit time ascending) claims the failure.
+- **Rationale**: Provides deterministic, causal matching when multiple matching jobs are submitted following a failure, preventing duplicate linkage and resolving multi-hop chains to their original root failure.
+- **Guarantee Maintained**: Guarantee G3 (Determinism) and causality in retry chain identification.
+
 
