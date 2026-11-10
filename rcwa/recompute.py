@@ -14,10 +14,12 @@ from typing import Any
 import polars as pl
 
 
-def _normalize_dt(dt: datetime | str | None) -> datetime | None:
-    """Normalize naive, aware datetime, or ISO string to UTC."""
+def _normalize_dt(dt: datetime | str | int | float | None) -> datetime | None:
+    """Normalize naive, aware datetime, ISO string, or integer timestamp to UTC."""
     if dt is None:
         return None
+    if isinstance(dt, int | float):
+        return datetime.fromtimestamp(dt, tz=UTC)
     if isinstance(dt, str):
         try:
             parsed = datetime.fromisoformat(dt.replace("Z", "+00:00"))

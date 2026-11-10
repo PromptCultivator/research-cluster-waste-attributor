@@ -13,10 +13,17 @@ import polars as pl
 FAILED_STATES = {"FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED"}
 
 
-def _normalize_dt(dt: datetime | None) -> datetime | None:
+def _normalize_dt(dt: datetime | str | int | float | None) -> datetime | None:
     """Ensure datetime carries UTC timezone if naive."""
     if dt is None:
         return None
+    if isinstance(dt, int | float):
+        return datetime.fromtimestamp(dt, tz=UTC)
+    if isinstance(dt, str):
+        try:
+            return datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
@@ -58,12 +65,12 @@ def detect_retry_chains(
     # Temporal causality: coalesce(end_time, start_time + run_s, submit_time + wait_s + run_s)
     enriched_rows: list[dict[str, Any]] = []
     for idx, row in enumerate(records):
-        st = row["state"]
-        run_s = row["run_s"] or 0
-        wait_s = row["wait_s"] or 0
-        sub_time = row["submit_time"]
-        start_time = row["start_time"]
-        end_time = row["end_time"]
+        st = row.get("state")
+        run_s = row.get("run_s") or 0
+        wait_s = row.get("wait_s") or 0
+        sub_time = row.get("submit_time")
+        start_time = row.get("start_time")
+        end_time = row.get("end_time")
 
         if end_time is not None:
             eff_end = end_time

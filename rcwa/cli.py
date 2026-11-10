@@ -246,17 +246,16 @@ def simulate(
         ),
     ],
     cluster: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--cluster",
             "-c",
             help="Cluster configuration YAML.",
-            exists=True,
             file_okay=True,
             dir_okay=False,
             readable=True,
         ),
-    ] = Path("clusters/example.yaml"),
+    ] = None,
     scenario: Annotated[
         str,
         typer.Option(
@@ -273,6 +272,44 @@ def simulate(
     """Replay traces through the EASY-backfill queue simulator."""
     typer.echo(f"Simulating trace {trace} on cluster {cluster}, scenario={scenario}")
 
+    from rcwa.adapters.sacct import parse_sacct
+    from rcwa.adapters.swf import parse_swf
+    from rcwa.simulate import infer_cluster_from_trace, load_cluster_config, simulate_trace
+
+    if trace.suffix.lower() == ".parquet":
+        df = pl.read_parquet(trace)
+    else:
+        name = trace.name.lower()
+        if name.endswith(".swf") or name.endswith(".swf.gz"):
+            df = parse_swf(trace)
+        else:
+            try:
+                head_sample = trace.read_text(encoding="utf-8", errors="ignore")[:500]
+                if not any("|" in line for line in head_sample.splitlines() if line.strip()):
+                    df = parse_swf(trace)
+                else:
+                    df = parse_sacct(trace)
+            except OSError:
+                df = parse_sacct(trace)
+
+    if cluster is not None:
+        cluster_cfg = load_cluster_config(cluster)
+    else:
+        cluster_cfg = infer_cluster_from_trace(df)
+
+    sim_df, metrics = simulate_trace(df, cluster=cluster_cfg, scenario=scenario)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if output.suffix.lower() == ".json":
+            output.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        elif output.suffix.lower() == ".csv":
+            sim_df.write_csv(output)
+        else:
+            sim_df.write_parquet(output)
+    else:
+        typer.echo(f"Simulation scenario '{scenario}' completed: {metrics}")
+
 
 @app.command()
 def calibrate(
@@ -280,32 +317,78 @@ def calibrate(
         Path | None,
         typer.Argument(
             help="Trace file path for calibration against recorded wait times.",
-            exists=True,
             file_okay=True,
             dir_okay=False,
             readable=True,
         ),
     ] = None,
     cluster: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--cluster",
             "-c",
             help="Cluster configuration YAML.",
-            exists=True,
             file_okay=True,
             dir_okay=False,
             readable=True,
         ),
-    ] = Path("clusters/example.yaml"),
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Calibration report output path."),
     ] = None,
 ) -> None:
     """Calibrate simulator baseline wait times against actual historical wait times."""
-    target = str(trace) if trace else "default traces"
-    typer.echo(f"Calibrating simulator against {target} with cluster {cluster}")
+    from rcwa.adapters.sacct import parse_sacct
+    from rcwa.adapters.swf import parse_swf
+    from rcwa.calibrate import compute_calibration_metrics
+    from rcwa.simulate import infer_cluster_from_trace, load_cluster_config, simulate_trace
+
+    if trace is None:
+        default_candidates = [
+            Path("tests/fixtures/swf/calibration_reference.swf"),
+            Path("tests/fixtures/swf/sample_workload.swf"),
+        ]
+        for candidate in default_candidates:
+            if candidate.is_file():
+                trace = candidate
+                break
+
+    if trace is None or not trace.is_file():
+        typer.echo("Error: Trace file required for calibration.", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Calibrating simulator against {trace} with cluster {cluster}")
+
+    if trace.suffix.lower() == ".parquet":
+        df = pl.read_parquet(trace)
+    else:
+        name = trace.name.lower()
+        if name.endswith(".swf") or name.endswith(".swf.gz"):
+            df = parse_swf(trace)
+        else:
+            try:
+                head_sample = trace.read_text(encoding="utf-8", errors="ignore")[:500]
+                if not any("|" in line for line in head_sample.splitlines() if line.strip()):
+                    df = parse_swf(trace)
+                else:
+                    df = parse_sacct(trace)
+            except OSError:
+                df = parse_sacct(trace)
+
+    if cluster is not None:
+        cluster_cfg = load_cluster_config(cluster)
+    else:
+        cluster_cfg = infer_cluster_from_trace(df)
+
+    sim_df, _ = simulate_trace(df, cluster=cluster_cfg, scenario="baseline")
+    calib_metrics = compute_calibration_metrics(sim_df, df)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(calib_metrics, indent=2), encoding="utf-8")
+    else:
+        typer.echo(f"Calibration results: {json.dumps(calib_metrics, indent=2)}")
 
 
 @app.command()

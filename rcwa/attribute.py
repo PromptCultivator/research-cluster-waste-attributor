@@ -14,10 +14,17 @@ import polars as pl
 from rcwa.retries import FAILED_STATES, detect_retry_chains
 
 
-def _normalize_dt(dt: datetime | None) -> datetime | None:
+def _normalize_dt(dt: datetime | str | int | float | None) -> datetime | None:
     """Ensure datetime carries UTC timezone if naive."""
     if dt is None:
         return None
+    if isinstance(dt, int | float):
+        return datetime.fromtimestamp(dt, tz=UTC)
+    if isinstance(dt, str):
+        try:
+            return datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt

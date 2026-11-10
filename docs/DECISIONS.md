@@ -97,3 +97,12 @@ This document records technical decisions made during implementation where choic
 - **Decision**: Round floating-point metrics to 6 decimal places during report serialization across JSON, Markdown, and CSV outputs.
 - **Rationale**: Multi-threaded reductions across Polars execution partitions can cause floating-point variations in least significant bits due to non-associative summation order. Quantizing floating-point numbers to 6 decimal places ensures reproducible, byte-identical serializations across runs on identical data.
 - **Guarantee Maintained**: Guarantee G3 (Determinism).
+
+---
+
+### DEC-013: Integer Epoch Timestamp Conversion and Cluster Inference in Discrete-Event Simulation
+- **Date**: 2026-11-09
+- **Decision**: Represent simulation timestamps (`submit_time`, `sim_start`, `sim_end`) as integer epoch seconds in output simulation DataFrames, and infer node sizing from observed peak allocations when an explicit cluster topology file is omitted.
+- **Rationale**: Downstream validation harnesses and invariant validators execute integer casting on timestamps. Representing timestamps as integer seconds ensures compatibility with schedule validity assertions. Inferring topology from observed peak resource requests ensures that trace simulation can execute without requiring manual cluster definition files while ensuring no job exceeds node capacity limits.
+- **Guarantee Maintained**: Guarantee G4 (Simulation Validity).
+
