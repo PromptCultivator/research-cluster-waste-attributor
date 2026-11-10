@@ -82,5 +82,18 @@ This document records technical decisions made during implementation where choic
 - **Rationale**: An out-of-memory termination represents a fatal workload disruption requiring memory allocation escalation rather than statistical reduction. Zeroing reclaimable memory prevents hazardous capacity reclamation while ensuring that groups with insufficient sample counts are protected from uncalibrated reductions.
 - **Guarantee Maintained**: Guarantee G2 (Safety Guardrails).
 
+---
 
+### DEC-011: Command-Only Duplicate Classification and Recomputation Exclusion
+- **Date**: 2026-11-09
+- **Decision**: Command-only matches (where `command_hash` matches but `input_hash` is absent) are assigned `recompute_confidence="command_only"` and `possible_recompute=True`, but are strictly excluded from Class 4 waste totals (`class4_core_s = 0`, `class4_mem_mb_s = 0`).
+- **Rationale**: In batch clusters, users frequently execute identical scripts with differing runtime flags or external unmetered inputs. Attributing waste without verified input checksum matches risks false positives. Restricting Class 4 resource attribution exclusively to verified input hash matches preserves precision while surfacing potential duplicates for inspection.
+- **Guarantee Maintained**: Guarantee G1 (Conservation) and precision in redundant recomputation attribution.
 
+---
+
+### DEC-012: Deterministic Floating-Point Metric Quantization for Guarantee G3 Serialization
+- **Date**: 2026-11-09
+- **Decision**: Round floating-point metrics to 6 decimal places during report serialization across JSON, Markdown, and CSV outputs.
+- **Rationale**: Multi-threaded reductions across Polars execution partitions can cause floating-point variations in least significant bits due to non-associative summation order. Quantizing floating-point numbers to 6 decimal places ensures reproducible, byte-identical serializations across runs on identical data.
+- **Guarantee Maintained**: Guarantee G3 (Determinism).

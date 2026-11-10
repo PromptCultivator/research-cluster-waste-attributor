@@ -35,7 +35,14 @@ def normalize_command_line(cmd: list[str], regex_strip: str = "") -> str:
     tokens = list(cmd)
     if regex_strip:
         pattern = re.compile(regex_strip)
-        tokens = [pattern.sub("", t) for t in tokens]
+        new_tokens: list[str] = []
+        for t in tokens:
+            if t.startswith("-") and "=" in t:
+                opt, val = t.split("=", 1)
+                new_tokens.append(f"{opt}={pattern.sub('', val)}")
+            else:
+                new_tokens.append(pattern.sub("", t))
+        tokens = new_tokens
 
     executable = tokens[0]
     args = tokens[1:]
@@ -84,14 +91,24 @@ def hash_file(
 
 def compute_input_hash(
     inputs: list[str],
-    cmd: list[str],
+    cmd: list[str] | None = None,
     big_file_mode: str = "size_mtime",
     big_file_threshold: int = 104857600,
     regex_strip: str = "",
 ) -> str:
-    """Produce deterministic composite hash for declared inputs and command line."""
-    combined_hasher = hashlib.sha256()
+    """Produce deterministic checksum for declared input files."""
+    if not inputs:
+        return hashlib.sha256(b"").hexdigest()
 
+    if len(inputs) == 1:
+        path = Path(inputs[0])
+        return hash_file(
+            path,
+            big_file_mode=big_file_mode,
+            big_file_threshold=big_file_threshold,
+        )
+
+    combined_hasher = hashlib.sha256()
     for item in sorted(inputs):
         path = Path(item)
         file_digest = hash_file(
@@ -100,9 +117,6 @@ def compute_input_hash(
             big_file_threshold=big_file_threshold,
         )
         combined_hasher.update(f"{item}={file_digest}\n".encode())
-
-    normalized_cmd = normalize_command_line(cmd, regex_strip=regex_strip)
-    combined_hasher.update(f"cmd={normalized_cmd}\n".encode())
 
     return combined_hasher.hexdigest()
 

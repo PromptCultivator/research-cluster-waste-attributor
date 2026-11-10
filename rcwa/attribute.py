@@ -5,7 +5,6 @@ mutually exclusive classes or utilized resources according to strict single-pass
 precedence rules enforcing Guarantee G1.
 """
 
-from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -148,93 +147,12 @@ def attribute_trace(
             eff_end = None
         eff_end_times.append(eff_end)
 
-    # Recomputation tracking dictionaries
-    # pair (command_hash, input_hash) -> list of effective end times
-    completed_pairs: dict[tuple[str, str], list[Any]] = defaultdict(list)
-    # command_hash -> list of effective end times
-    completed_commands: dict[str, list[Any]] = defaultdict(list)
+    from rcwa.recompute import detect_recomputations
 
-    # Chronological sort index for recomputation matching
-    def _recompute_sort_key(i: int) -> tuple[int, datetime, int, str]:
-        sub = _normalize_dt(records[i]["submit_time"])
-        eff = _normalize_dt(eff_end_times[i])
-        t = sub if sub is not None else eff
-        return (
-            0 if t is not None else 1,
-            t if t is not None else datetime.min.replace(tzinfo=UTC),
-            i,
-            str(records[i]["job_id"]),
-        )
-
-    indexed_order = sorted(range(len(records)), key=_recompute_sort_key)
-
-    recompute_status: dict[int, tuple[bool, bool, str | None]] = {}
-    for idx in indexed_order:
-        row = records[idx]
-        st = row["state"]
-        source = (row.get("source") or "").lower()
-        cmd_h = row.get("command_hash")
-        inp_h = row.get("input_hash")
-        sub_time = _normalize_dt(row.get("submit_time"))
-        eff_end = _normalize_dt(eff_end_times[idx])
-
-        if source == "swf":
-            # SWF traces do not carry declared inputs
-            recompute_status[idx] = (False, False, "not_available")
-            continue
-
-        if st != "COMPLETED":
-            recompute_status[idx] = (False, False, None)
-            continue
-
-        is_recompute = False
-        possible_recomp = False
-        confidence: str | None = None
-
-        if cmd_h and inp_h:
-            pair = (cmd_h, inp_h)
-            if pair in completed_pairs and sub_time is not None:
-                for prev_end in completed_pairs[pair]:
-                    prev_end_utc = _normalize_dt(prev_end)
-                    if prev_end_utc is not None:
-                        delta = (sub_time - prev_end_utc).total_seconds()
-                        if 0 <= delta <= recompute_window_s:
-                            is_recompute = True
-                            confidence = "declared_inputs"
-                            break
-
-            if not is_recompute:
-                # Check whether matching command_only history exists
-                if cmd_h in completed_commands and sub_time is not None:
-                    for prev_end in completed_commands[cmd_h]:
-                        prev_end_utc = _normalize_dt(prev_end)
-                        if prev_end_utc is not None:
-                            delta = (sub_time - prev_end_utc).total_seconds()
-                            if 0 <= delta <= recompute_window_s:
-                                possible_recomp = True
-                                confidence = "command_only"
-                                break
-
-            # Register completed run for subsequent jobs
-            if eff_end is not None:
-                completed_pairs[pair].append(eff_end)
-                completed_commands[cmd_h].append(eff_end)
-
-        elif cmd_h and not inp_h:
-            if cmd_h in completed_commands and sub_time is not None:
-                for prev_end in completed_commands[cmd_h]:
-                    prev_end_utc = _normalize_dt(prev_end)
-                    if prev_end_utc is not None:
-                        delta = (sub_time - prev_end_utc).total_seconds()
-                        if 0 <= delta <= recompute_window_s:
-                            possible_recomp = True
-                            confidence = "command_only"
-                            break
-
-            if eff_end is not None:
-                completed_commands[cmd_h].append(eff_end)
-
-        recompute_status[idx] = (is_recompute, possible_recomp, confidence)
+    df_recomp = detect_recomputations(df_with_retries, recompute_window_s=recompute_window_s)
+    is_recomp_col = df_recomp["is_recompute"].to_list()
+    poss_recomp_col = df_recomp["possible_recompute"].to_list()
+    recomp_conf_col = df_recomp["recompute_confidence"].to_list()
 
     # Perform attribution per row across the precedence order
     used_core_list: list[int] = []
@@ -264,7 +182,9 @@ def attribute_trace(
 
         is_failed = (st in FAILED_STATES) or (st == "CANCELLED" and run_s > 0) or (run_s == 0)
 
-        is_recompute, poss_recomp, recomp_conf = recompute_status.get(idx, (False, False, None))
+        is_recompute = is_recomp_col[idx]
+        poss_recomp = poss_recomp_col[idx]
+        recomp_conf = recomp_conf_col[idx]
         possible_recompute_list.append(poss_recomp)
         recompute_confidence_list.append(recomp_conf)
 

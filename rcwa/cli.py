@@ -1,5 +1,6 @@
 """Command-line interface for research-cluster-waste-attributor."""
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -339,14 +340,61 @@ def report(
         )
         raise typer.Exit(code=2)
 
+    if trace is None:
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            if fmt == "json":
+                output.write_text("{}", encoding="utf-8")
+            elif fmt == "csv":
+                output.write_text("", encoding="utf-8")
+            else:
+                output.write_text("# Report\n", encoding="utf-8")
+        return
+
+    from rcwa.adapters.sacct import parse_sacct
+    from rcwa.adapters.swf import parse_swf
+    from rcwa.attribute import attribute_trace
+    from rcwa.report import build_report_data, render_csv_report, render_markdown_report
+
+    trace_path = Path(trace)
+    if trace_path.suffix.lower() == ".parquet":
+        loaded_df = pl.read_parquet(trace_path)
+        if "class1_over_mem_mb_s" in loaded_df.columns:
+            attr_df = loaded_df
+            canonical_df = loaded_df
+        else:
+            canonical_df = loaded_df
+            attr_df = attribute_trace(canonical_df)
+    else:
+        is_swf_trace = trace_path.suffix.lower() == ".swf"
+        if not is_swf_trace:
+            try:
+                head_sample = trace_path.read_text(encoding="utf-8", errors="ignore")[:500]
+                if not any("|" in line for line in head_sample.splitlines() if line.strip()):
+                    is_swf_trace = True
+            except OSError:
+                pass
+
+        if is_swf_trace:
+            canonical_df = parse_swf(trace_path)
+        else:
+            canonical_df = parse_sacct(trace_path)
+        attr_df = attribute_trace(canonical_df)
+
+    report_data = build_report_data(canonical_df, attr_df)
+
+    if fmt == "json":
+        rendered = json.dumps(report_data, indent=2)
+    elif fmt == "csv":
+        rendered = render_csv_report(report_data)
+    else:
+        rendered = render_markdown_report(report_data)
+
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
-        if fmt == "json":
-            output.write_text("{}", encoding="utf-8")
-        elif fmt == "csv":
-            output.write_text("", encoding="utf-8")
-        else:
-            output.write_text("# Report\n", encoding="utf-8")
+        output.write_text(rendered, encoding="utf-8")
+    else:
+        typer.echo(rendered)
 
 
 @app.command()
