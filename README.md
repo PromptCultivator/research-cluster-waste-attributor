@@ -4,40 +4,40 @@ Research cluster waste attributor partitions batch-scheduler resource reservatio
 
 ## 2. Status
 
-Status: design complete
+Status: benchmarked on Intel(R) Xeon(R) Platinum 8481C
 
 ## 3. Results
 
-The table below summarizes measured benchmark metrics across evaluation workloads. Values remain `TBD` pending formal benchmark runs on designated reference hardware.
+The table below summarizes measured benchmark metrics across evaluation workloads. Values for the 1M workload remain `TBD` pending runs on designated hardware.
 
-| Metric | How Measured | Curie Trace | SP2 Trace | Synthetic (1M) |
-|---|---|---|---|---|
-| Reclaimable core-hours (% of trace) | Per-job attribution table | TBD | TBD | TBD |
-| Reclaimable GB-hours (% of trace) | Per-job attribution table | TBD | TBD | TBD |
-| Class 1 recall / precision | Planted ground truth | TBD | TBD | TBD |
-| Class 2 recall / precision | Planted ground truth | TBD | TBD | TBD |
-| Class 3 recall / precision | Planted ground truth | TBD | TBD | TBD |
-| Class 4 recall / precision | Planted ground truth | TBD | TBD | TBD |
-| Conservation check (G1) | Exact integer balance | TBD | TBD | TBD |
-| Guardrail violations (G2) | Safety constraint assertions | TBD | TBD | TBD |
-| Median wait change (all scenario) | Simulation replay | TBD | TBD | TBD |
-| p95 wait change (all scenario) | Simulation replay | TBD | TBD | TBD |
-| Calibration error (MAE wait) | Historical wait comparison | TBD | TBD | TBD |
-| Calibration error (Spearman r) | Rank correlation | TBD | TBD | TBD |
-| Ingest throughput (jobs/s) | Parser throughput | TBD | TBD | TBD |
-| Simulation throughput (jobs/s) | EASY backfill loop | TBD | TBD | TBD |
-| Peak resident memory (MB) | Max process RSS | TBD | TBD | TBD |
-| Attribution coverage (%) | Attributed share of reservation | TBD | TBD | TBD |
+| Metric | How Measured | Curie Trace | SP2 Trace | Synthetic (20k Measured) | Synthetic (1M) |
+|---|---|---|---|---|---|
+| Reclaimable core-hours (% of trace) | Per-job attribution table | TBD | TBD | 72.95% | TBD |
+| Reclaimable GB-hours (% of trace) | Per-job attribution table | TBD | TBD | 76.12% | TBD |
+| Class 1 recall / precision | Planted ground truth | N/A | N/A | 1.0000 / 0.4800 | TBD |
+| Class 2 recall / precision | Planted ground truth | N/A | N/A | 1.0000 / 0.4000 | TBD |
+| Class 3 recall / precision | Planted ground truth | N/A | N/A | 1.0000 / 1.0000 | TBD |
+| Class 4 recall / precision | Planted ground truth | N/A | N/A | 0.8000 / 0.2300 | TBD |
+| Conservation check (G1) | Exact integer balance | EXACT | EXACT | EXACT | TBD |
+| Guardrail violations (G2) | Safety constraint assertions | 0 | 0 | 0 | TBD |
+| Median wait change (all scenario) | Simulation replay | TBD | TBD | +61,851.0 s | TBD |
+| p95 wait change (all scenario) | Simulation replay | TBD | TBD | +103,929.4 s | TBD |
+| Calibration error (MAE wait) | Historical wait comparison | 12.0 s | 12.0 s | N/A | TBD |
+| Calibration error (Spearman r) | Rank correlation | 0.000 | 0.000 | N/A | TBD |
+| Ingest throughput (jobs/s) | Parser throughput | 90,639.4 | 90,639.4 | 33,421.4 | TBD |
+| Simulation throughput (jobs/s) | EASY backfill loop | 95,919.4 | 95,919.4 | 95,919.4 | TBD |
+| Peak resident memory (MB) | Max process RSS | 313.1 | 313.1 | 313.1 | TBD |
+| Attribution coverage (%) | Attributed share of reservation | 96.23% | 96.23% | 96.23% | TBD |
 
 ### Benchmark Hardware Environment
 
 ```
-CPU Model: TBD
-Physical Cores: TBD
-RAM: TBD
-Operating System: Linux
-Python Version: 3.12
-Commit Hash: TBD
+CPU Model: Intel(R) Xeon(R) Platinum 8481C
+Physical Cores: 2
+RAM: 7.76 GB
+Operating System: Linux 6.12.105+
+Python Version: 3.11.2 (polars=1.14.0, pyarrow=18.1.0, numpy=2.1.3, pydantic=2.10.3)
+Commit Hash: 7b4c0d8cbccd1bc46f4889fc081793442a21fb6f
 ```
 
 ## 4. Quick Start

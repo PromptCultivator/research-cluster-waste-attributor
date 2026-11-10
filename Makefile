@@ -26,7 +26,7 @@ test:
 	$(PYTHON) -m pytest
 
 data:
-	@echo "Data download target for public traces (Phase 7)"
+	$(PYTHON) scripts/download_data.py
 
 synth:
 	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --faults default
@@ -38,12 +38,10 @@ calibrate:
 	$(PYTHON) -m rcwa.cli calibrate
 
 bench:
-	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --runs $(RUNS)
+	$(PYTHON) -m bench.run --size $(SIZE) --runs $(RUNS) --seed $(SEED)
 
 bench-smoke:
-	$(PYTHON) -m rcwa.cli version
-	$(PYTHON) -m rcwa.wrap --version
-	$(PYTHON) -m rcwa.cli synth --size $(SIZE) --seed $(SEED) --runs $(RUNS)
+	$(PYTHON) -m bench.run --size 20k --runs 1 --smoke
 
 goldens:
 	$(PYTHON) -m rcwa.cli report tests/fixtures/sacct/multiday_cluster.txt --format json --output tests/fixtures/golden/golden_report.json

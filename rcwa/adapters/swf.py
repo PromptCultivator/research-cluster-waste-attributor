@@ -5,6 +5,7 @@ converts per-processor memory and CPU metrics to cluster totals,
 and produces canonical DataFrames.
 """
 
+import gzip
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -31,6 +32,14 @@ def _get_line_iterator(source: Path | IO[str] | str) -> tuple[Iterator[str], boo
             return iter([]), True
 
         raw_bytes = file_path.read_bytes()[:8192]
+        if raw_bytes[:2] == b"\x1f\x8b":
+            try:
+                content = gzip.decompress(file_path.read_bytes()).decode("utf-8", errors="replace")
+                lines = content.splitlines()
+                return iter(lines), len(lines) == 0
+            except Exception as exc:
+                raise ValueError(f"Failed to decompress gzip file: {file_path}") from exc
+
         if b"\x00" in raw_bytes:
             raise ValueError(f"Binary or non-UTF-8 trace file cannot be decoded: {file_path}")
 
@@ -50,9 +59,12 @@ def _get_line_iterator(source: Path | IO[str] | str) -> tuple[Iterator[str], boo
 
     raw: Any = getattr(source, "read")()
     if isinstance(raw, bytes):
-        if 0 in raw:
+        if raw[:2] == b"\x1f\x8b":
+            text = gzip.decompress(raw).decode("utf-8", errors="replace")
+        elif 0 in raw:
             raise ValueError("Binary content detected in file stream")
-        text = raw.decode("utf-8")
+        else:
+            text = raw.decode("utf-8")
     else:
         text = str(raw)
 

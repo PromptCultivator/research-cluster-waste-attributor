@@ -114,4 +114,13 @@ This document records technical decisions made during implementation where choic
 - **Rationale**: Providing automated execution of all counterfactual scenarios in `rcwa report` and `rcwa run` produces complete evaluation metrics without secondary invocations. Honoring the specification requirement that SWF traces never estimate unverified recomputations prevents speculative waste attribution while providing auditable status across all reporting formats.
 - **Guarantee Maintained**: Guarantee G1 (Conservation) and Guarantee G3 (Determinism).
 
+---
+
+### DEC-015: Monotonic Submit Offsets and Bounded Backfill Testing in Discrete-Event Simulation
+- **Date**: 2026-11-10
+- **Decision**: In synthetic trace generation, scale submit offsets monotonically across trace duration rather than wrapping cyclically within a fixed week. In the EASY backfill scheduler, bound queue candidate evaluation to the first 50 waiting jobs (`bf_max_job_test`) and clamp head requests exceeding single-node hardware limits to the node envelope.
+- **Rationale**: Cyclically wrapping submit offsets causes thousands of jobs to share identical arrival timestamps, creating artificial queue pile-ups exceeding cluster capacity. Evaluating unbounded candidate queues on every event incurs quadratic overhead. Bounding candidate scans to 50 jobs mirrors production Slurm scheduler defaults, preventing simulation deadlocks while preserving backfill opportunities. Clamping requests to per-node hardware capacities prevents unfulfillable recommendations from stalling the queue.
+- **Guarantee Maintained**: Guarantee G4 (Simulation Validity) and benchmark throughput targets.
+
+
 

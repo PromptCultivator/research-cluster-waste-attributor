@@ -57,13 +57,27 @@ def synth(
         Path | None,
         typer.Option("--output", "-o", help="Destination file for generated trace."),
     ] = None,
+    ground_truth: Annotated[
+        Path | None,
+        typer.Option("--ground-truth", "-g", help="Destination for ground truth table."),
+    ] = None,
 ) -> None:
     """Generate a synthetic trace with planted waste categories."""
+    from rcwa.synth import generate_synthetic_trace, write_synthetic_trace
+
     destination = str(output) if output else "stdout"
     typer.echo(
         f"Synthesizing trace: size={size}, seed={seed}, runs={runs}, "
         f"faults={faults}, output={destination}"
     )
+    if output is not None:
+        sacct_text, truth_df = generate_synthetic_trace(size=size, seed=seed, faults=faults)
+        write_synthetic_trace(
+            output,
+            sacct_text,
+            truth_df=truth_df,
+            ground_truth_path=ground_truth,
+        )
 
 
 @app.command()

@@ -1,0 +1,2 @@
+n_jobs,seed,g1_exact,guardrail_violations,attribution_coverage_pct,reclaim_core_share_pct,reclaim_mem_share_pct,class1_recall,class1_precision,class2_recall,class2_precision,class3_recall,class3_precision,class4_recall,class4_precision,sacct_ingest_throughput,swf_ingest_throughput,sim_throughput,median_wait_change_s,p95_wait_change_s,calibration_mae_s,calibration_rho,peak_rss_mb
+20000,1,True,0,96.23,72.95,76.12,1.0,0.4829,1.0,0.397,1.0,1.0,0.8039,0.2273,34610.4,90618.1,90486.8,61851.0,103929.4,12.0,0.0,310.77

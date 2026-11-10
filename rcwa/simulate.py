@@ -337,7 +337,14 @@ def compute_head_reservation(
         ),
     )
 
-    nodes_needed = head_job.nodes
+    nodes_needed = max(1, head_job.nodes)
+    max_node_cores = max(n.total_cores for n in nodes) if nodes else 32
+    max_node_mem = max(n.total_mem_mb for n in nodes) if nodes else 131072
+    if head_job.alloc_cpus > nodes_needed * max_node_cores:
+        head_job.alloc_cpus = nodes_needed * max_node_cores
+    if head_job.req_mem_mb > nodes_needed * max_node_mem:
+        head_job.req_mem_mb = nodes_needed * max_node_mem
+
     c_per_node = int(math.ceil(head_job.alloc_cpus / nodes_needed))
     m_per_node = int(math.ceil(head_job.req_mem_mb / nodes_needed))
 
@@ -650,10 +657,13 @@ def simulate_trace(
             head = wait_queue[0]
 
             # Guard: clamp oversized jobs to avoid deadlocks on small cluster definitions
-            if head.alloc_cpus > total_cluster_cores:
-                head.alloc_cpus = total_cluster_cores
-            if head.req_mem_mb > total_cluster_mem:
-                head.req_mem_mb = total_cluster_mem
+            nodes_needed = max(1, head.nodes)
+            max_node_cores = max(n.total_cores for n in nodes) if nodes else 32
+            max_node_mem = max(n.total_mem_mb for n in nodes) if nodes else 131072
+            if head.alloc_cpus > nodes_needed * max_node_cores:
+                head.alloc_cpus = nodes_needed * max_node_cores
+            if head.req_mem_mb > nodes_needed * max_node_mem:
+                head.req_mem_mb = nodes_needed * max_node_mem
 
             alloc = find_available_nodes(
                 nodes,
@@ -690,8 +700,15 @@ def simulate_trace(
             if avail_core_sum > 0 and avail_mem_sum > 0:
                 new_queue: deque[JobSpec] = deque([head])
                 candidates = list(wait_queue)[1:]
+                max_test = 50
+                test_candidates = candidates[:max_test]
+                rest_candidates = candidates[max_test:]
 
-                for cand in candidates:
+                for idx, cand in enumerate(test_candidates):
+                    if avail_core_sum <= 0 or avail_mem_sum <= 0:
+                        new_queue.extend(test_candidates[idx:])
+                        break
+
                     if cand.alloc_cpus > avail_core_sum or cand.req_mem_mb > avail_mem_sum:
                         new_queue.append(cand)
                         continue
@@ -730,6 +747,7 @@ def simulate_trace(
 
                     new_queue.append(cand)
 
+                new_queue.extend(rest_candidates)
                 wait_queue = new_queue
 
         # If event_heap is empty but wait_queue has remaining jobs,
