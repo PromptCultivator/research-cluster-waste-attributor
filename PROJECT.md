@@ -43,7 +43,7 @@ Every feature extracted from `docs/SPEC.md` and `ORIGINAL_REQUEST.md` is invento
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
 | 1 | Repository Scaffold | Directory structure, pyproject.toml with pinned deps, LICENSE (Apache-2.0), Makefile, Dockerfile, CI workflow | M0 | SPEC §4, §10, §11, §14 |
-| 2 | Documentation Stubs | README skeleton (14 sections), docs/DECISIONS.md, docs/AI-ASSISTANCE.md, docs/DATA.md template, 5 ADR stubs | M0 | SPEC §1, §12, §13, §14 |
+| 2 | Documentation Stubs | README skeleton, docs/DECISIONS.md, docs/DATA.md template, 5 ADR stubs | M0 | SPEC §4, §12, §14 |
 | 3 | Default Configurations | policies/default.yaml (grouping, sample floors, thresholds), clusters/example.yaml (node specs) | M0 | SPEC §4, §5.4, §8 |
 | 4 | sacct Column Parsing | Ingest pipe-delimited sacct export with 26 mandatory columns, handle empty fields, warn on extra columns | M1 | SPEC §5.1 |
 | 5 | sacct Step Hierarchy Rollup | MaxRSS max over steps, TotalCPU sum over steps excluding .extern; parent carries allocations | M1 | SPEC §5.1 |
@@ -100,7 +100,7 @@ Every feature extracted from `docs/SPEC.md` and `ORIGINAL_REQUEST.md` is invento
 
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M0 | Phase 0 — Scaffold | Repository layout, pyproject.toml (pinned deps), Makefile (13 targets), Dockerfile, CI workflow, initial docs (DECISIONS.md, AI-ASSISTANCE.md, DATA.md, 5 ADR stubs), README skeleton, default policies, example cluster | none | DONE (26 tests, 95.24% cov, ruff/pyright pass, 0 prohibited words, auditor verified) |
+| M0 | Phase 0 — Scaffold | Repository layout, pyproject.toml (pinned deps), Makefile (13 targets), Dockerfile, CI workflow, initial docs (DECISIONS.md, DATA.md, 5 ADR stubs), README skeleton, default policies, example cluster | none | DONE (26 tests, 95.24% cov, ruff/pyright pass, 0 prohibited words, auditor verified) |
 | M1 | Phase 1 — Adapters & Canonical Record | model.py, normalize.py, adapters/sacct.py, adapters/swf.py, fixtures, 100k-row throughput benchmark | M0 | DONE (261 tests, 92.13% cov, 31,017 jobs/s, ruff/pyright pass, auditor clean) |
 | M2 | Phase 2 — Attribution | attribute.py, groups.py, retries.py, G1 conservation test on fixtures and 20k trace, Parquet/CSV output | M1 | DONE (310 tests, 90.89% cov, G1 exact on 20k trace, ruff/pyright pass, auditor clean) |
 | M3 | Phase 3 — Recommendations | recommend.py with guardrails (floor, OOM, min_samples), G2 Hypothesis property tests (10k groups) | M2 | PLANNED |
@@ -230,7 +230,6 @@ research-cluster-waste-attributor/
   docs/
     SPEC.md
     DECISIONS.md
-    AI-ASSISTANCE.md
     DATA.md
     adr/
       001-conservation-partition.md

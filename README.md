@@ -62,7 +62,7 @@ Generated outputs will be saved to `data/out/`:
 - `recommendations.csv`: Rightsized CPU and memory limits per job group
 - `report.md`: Markdown summary report with ranked reclaim opportunities
 
-## 💻 Usage & Minimal Examples
+## 💻 Usage & Code Examples
 
 ### 1. End-to-End Pipeline
 

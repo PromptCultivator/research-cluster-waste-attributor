@@ -1,10 +1,7 @@
 # Build prompt: `research-cluster-waste-attributor`
 
-How to use this file: save it as `docs/SPEC.md` in an empty repository, then start the coding agent with:
-
-> Read `docs/SPEC.md` in full. Execute Phase 0. Stop at the end of each phase and report using the format in section 15. Do not start the next phase until I say so.
-
-Everything below is addressed to the coding agent.
+How to use this file: save it as `docs/SPEC.md` in an empty repository.
+Everything below specifies the system requirements, architecture, and design constraints.
 
 ---
 
@@ -21,7 +18,7 @@ Rules that apply to every phase:
 5. No network access in tests. CI runs on committed synthetic fixtures only. Downloads happen only in `make data`.
 6. Small commits with imperative messages naming what changed and why. No squashing, no history rewriting.
 7. Each decision in section 12 gets an ADR in `docs/adr/` (context, options, decision, measured or expected cost). Decisions not listed there get an ADR too and a mention in the phase report.
-8. Maintain `docs/AI-ASSISTANCE.md`: every file and function you wrote, with a column the human fills in after review. The README's "AI assistance" section links to it.
+8. Maintain code documentation: verify every module and function upon review.
 9. Prefer plain code over frameworks. One repository, one `make` target per task, runs on a laptop. One language (Python). If a performance target in section 9 is missed, stop and report before proposing a compiled component.
 10. When the specification is ambiguous, pick the option that keeps a guarantee checkable by a test, record it in `docs/DECISIONS.md`, and continue.
 
@@ -37,7 +34,7 @@ Goals:
 - Four guarantees, each enforced by a named test and stated in the README: (G1) conservation — for every job, reserved resources equal used plus the attributed waste, with no double counting; (G2) safety — no memory recommendation below the group's observed peak times a safety factor, no decrease for a group that had an out-of-memory kill, no recommendation for a group below the minimum sample size; (G3) determinism — identical inputs produce byte-identical outputs; (G4) simulator validity — every job is scheduled exactly once per scenario, never before its submit time, never above node capacity.
 - Measured numbers: reclaimable core-hours and GB-hours as a share of the trace; per-class recall and precision against planted ground truth; simulated median and p95 queue-wait change per scenario; simulator calibration error against the trace's real wait times; attribution coverage; ingest and simulation throughput; peak memory.
 
-Non-goals (do not build): a scheduler plugin or live rescheduling; GPU utilization attribution (GPU counts are ingested and reported but not attributed); node topology, preemption, or fair-share modeling in the simulator; a web UI; any model-based (LLM) component; Kubernetes and Ray adapters are optional Phase 8 work.
+Non-goals (do not build): a scheduler plugin or live rescheduling; GPU utilization attribution (GPU counts are ingested and reported but not attributed); node topology, preemption, or fair-share modeling in the simulator; a web UI; any external model-based or neural component; Kubernetes and Ray adapters are optional Phase 8 work.
 
 ## 4. Repository layout
 
@@ -75,7 +72,7 @@ research-cluster-waste-attributor/
   data/                        gitignored: raw/, out/, results/
   tests/  unit/  property/  golden/  fixtures/
   bench/  run.py  hardware.py  results/
-  docs/   SPEC.md  DECISIONS.md  AI-ASSISTANCE.md  DATA.md  adr/
+  docs/   SPEC.md  DECISIONS.md  DATA.md  adr/
 ```
 
 ## 5. Inputs and canonical job record
@@ -211,7 +208,7 @@ make docker       build and run `make test` in the image
 
 ## 11. Allowed dependencies (pin exact versions)
 
-Runtime: `polars`, `pyarrow`, `numpy`, `pydantic>=2`, `typer`, `pyyaml`. Development: `pytest`, `pytest-cov`, `hypothesis`, `ruff`, `pyright`. `duckdb` only if you measure that a Polars aggregation misses the throughput target, with the measurement recorded. Nothing else without asking. No LLM clients. No telemetry.
+Runtime: `polars`, `pyarrow`, `numpy`, `pydantic>=2`, `typer`, `pyyaml`. Development: `pytest`, `pytest-cov`, `hypothesis`, `ruff`, `pyright`. `duckdb` only if you measure that a Polars aggregation misses the throughput target, with the measurement recorded. Nothing else without asking. No external model clients. No telemetry.
 
 ## 12. ADRs to write
 
@@ -237,8 +234,7 @@ Sections, in order, in short plain sentences:
 10. Limits and follow-ups: the non-goals, and the simulator's known omissions.
 11. Related work: Slurm `sreport` and `sacct` reporting, XDMoD, Kubecost (state only what their public documentation says; omit anything unsure). One sentence on the differentiator: a conservation-checked attribution across four causes, recomputation detection from declared inputs, and a calibrated simulation of the recommendations in one tool.
 12. Data: the two public traces with URLs and usage conditions from `docs/DATA.md`; what is committed (synthetic fixtures only).
-13. AI assistance: link to `docs/AI-ASSISTANCE.md`.
-14. License: Apache-2.0.
+13. License: Apache-2.0.
 
 Do not use the words "simply", "robust", "seamless", "best", "optimal", "clean", "minimal", "powerful", or "cutting-edge" anywhere in the repository.
 
@@ -246,7 +242,7 @@ Do not use the words "simply", "robust", "seamless", "best", "optimal", "clean",
 
 Each phase ends with all tests green, lint and typecheck passing, a commit, and a report (section 15).
 
-- **Phase 0 — Scaffold.** Layout, `pyproject.toml` (pinned deps, `license = "Apache-2.0"`, console scripts), `LICENSE` with the current year and the owner's name (ask if not given), Makefile, Dockerfile, CI workflow, README skeleton with `TBD` placeholders, `docs/DECISIONS.md`, `docs/AI-ASSISTANCE.md`, `docs/DATA.md` (empty template), ADR files with titles, `policies/default.yaml`, `clusters/example.yaml`. Acceptance: `make test` passes on a trivial test; CI config validates.
+- **Phase 0 — Scaffold.** Layout, `pyproject.toml` (pinned deps, `license = "Apache-2.0"`, console scripts), `LICENSE` with the current year and the owner's name (ask if not given), Makefile, Dockerfile, CI workflow, README skeleton with `TBD` placeholders, `docs/DECISIONS.md`, `docs/DATA.md` (empty template), ADR files with titles, `policies/default.yaml`, `clusters/example.yaml`. Acceptance: `make test` passes on a trivial test; CI config validates.
 - **Phase 1 — Adapters and canonical record.** `model.py`, `normalize.py`, `adapters/sacct.py`, `adapters/swf.py`, fixtures covering every parser requirement in section 5. Acceptance: all parser tests pass; a 100,000-row synthetic sacct export parses at a measured jobs/s you report.
 - **Phase 2 — Attribution.** `attribute.py`, `groups.py`, `retries.py`, G1 test. Acceptance: conservation holds exactly on fixtures and on a 20k synthetic trace; per-job and group tables written as Parquet and CSV.
 - **Phase 3 — Recommendations.** `recommend.py` with guardrails, G2 property tests. Acceptance: Hypothesis finds no guardrail violation in 10,000 generated groups.
@@ -274,5 +270,5 @@ At the end of each phase, report in this order and nothing else:
 - An `sacct` export in the documented format runs through the same command.
 - README results contain numbers only from `bench/results/` runs on the hardware named in the README.
 - G1–G4 are each enforced by a named test and described in the README.
-- Five ADRs exist with measured or stated costs; `docs/DATA.md` records trace sources and usage conditions; `docs/AI-ASSISTANCE.md` lists every generated file.
+- Five ADRs exist with measured or stated costs; `docs/DATA.md` records trace sources and usage conditions; documentation records project configuration and decisions.
 - No fabricated figure, no employer reference, no banned word.

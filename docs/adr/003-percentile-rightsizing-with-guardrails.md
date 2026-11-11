@@ -9,7 +9,7 @@ Recommending lower CPU or memory reservations can recover cluster capacity, but 
 ## Options
 1. **Conservative Percentile Rightsizing with Hard Guardrails**: Use the 99th percentile of observed peak RSS multiplied by a 1.2 safety factor, with hard floors at the historical maximum observed RSS, mandatory upward adjustments for groups with OOM failures, and exclusion of small groups below a minimum sample size.
 2. **Aggressive Median Rightsizing**: Recommend 50th or 75th percentile limits to maximize recovered capacity, accepting a risk of occasional retries.
-3. **Machine Learning Predictors**: Train regression models to dynamically estimate per-job resource envelopes.
+3. **Dynamic Regression Predictors**: Train statistical regression estimators to predict per-job resource envelopes.
 
 ## Decision
 Adopt Option 1: Conservative Percentile Rightsizing with Hard Guardrails. Recommended requests are bounded:
