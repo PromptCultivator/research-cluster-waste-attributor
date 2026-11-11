@@ -5,12 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "research-cluster-waste-attributor"
 version = "0.1.0"
-description = "Batch-scheduler accounting waste attribution and simulation for research compute clusters"
+description = "Accounting waste attribution, safe rightsizing, and EASY-backfill queue simulation for HPC and research compute clusters"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "PromptCultivator" }
+]
+keywords = [
+    "hpc",
+    "slurm",
+    "sacct",
+    "cluster-computing",
+    "batch-scheduler",
+    "rightsizing",
+    "queue-simulation",
+    "backfill-scheduling",
+    "finops",
 ]
 dependencies = [
     "polars==1.14.0",
