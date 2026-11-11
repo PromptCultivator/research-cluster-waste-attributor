@@ -1,5 +1,6 @@
 """Scaffold and baseline functionality tests for rcwa package."""
 
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -91,6 +92,14 @@ def test_cli_run_without_trace() -> None:
     assert "Executing pipeline on default synthetic workload" in res.stdout
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI escape sequences (CI forces colored Rich output)."""
+    return _ANSI_RE.sub("", text)
+
+
 def test_cli_subcommands_help() -> None:
     """Verify --help succeeds on all subcommands including those with positional arguments."""
     for cmd in [
@@ -105,7 +114,7 @@ def test_cli_subcommands_help() -> None:
     ]:
         res = runner.invoke(cli.app, [cmd, "--help"])
         assert res.exit_code == 0
-        assert f"Usage: rcwa {cmd}" in res.output
+        assert f"Usage: rcwa {cmd}" in _plain(res.output)
 
 
 def test_cli_subcommands_missing_required_arguments() -> None:
@@ -113,15 +122,16 @@ def test_cli_subcommands_missing_required_arguments() -> None:
     for cmd in ["ingest", "attribute", "recommend", "simulate"]:
         res = runner.invoke(cli.app, [cmd])
         assert res.exit_code == 2
-        assert "Missing argument" in res.output
+        assert "Missing argument" in _plain(res.output)
 
 
 def test_cli_subcommands_nonexistent_paths() -> None:
     """Verify passing non-existent file paths fails validation with exit code 2."""
     res = runner.invoke(cli.app, ["ingest", "definitely_nonexistent_path_xyz.sacct"])
     assert res.exit_code == 2
-    assert "Invalid value for 'TRACE'" in res.output
-    assert "not exist" in res.output
+    out = _plain(res.output)
+    assert "Invalid value for 'TRACE'" in out
+    assert "not exist" in out
 
 
 def test_wrap_version() -> None:
