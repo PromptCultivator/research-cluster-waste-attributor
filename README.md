@@ -62,6 +62,27 @@ Generated outputs will be saved to `data/out/`:
 - `recommendations.csv`: Rightsized CPU and memory limits per job group
 - `report.md`: Markdown summary report with ranked reclaim opportunities
 
+### Obtaining Input Data
+
+You can provide accounting traces from production clusters or use built-in dataset sources:
+
+- **Slurm Production Export**: Export completed jobs with standard `sacct` fields:
+  ```bash
+  sacct -a -P --units=M -S 2026-01-01 -E 2026-02-01 \
+    --format=JobIDRaw,JobID,User,Account,Partition,QOS,JobName,Submit,Eligible,Start,End,Elapsed,State,ExitCode,\
+  ReqCPUS,AllocCPUS,ReqMem,MaxRSS,AveRSS,TotalCPU,CPUTimeRAW,ReqTRES,AllocTRES,NodeList,Comment,SubmitLine > trace.sacct
+  ```
+- **Public Supercomputer Traces**: Download real-world traces from the Parallel Workloads Archive:
+  ```bash
+  make data
+  ```
+- **Synthetic Trace Generation**: Generate a calibrated synthetic trace with planted waste categories:
+  ```bash
+  make synth SIZE=20k SEED=1
+  ```
+
+For complete instructions on column requirements, step rollups, and input hashing via `rcwa-wrap`, consult the [System Input Acquisition Guide](docs/INPUTS.md).
+
 ## 💻 Usage & Code Examples
 
 ### 1. End-to-End Pipeline
