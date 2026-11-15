@@ -5,7 +5,7 @@ from typing import Any
 import click
 import typer.core
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["__version__"]
 
 # Compatibility bridges for click >= 8.2 parameter formatting in typer

@@ -17,21 +17,21 @@ runner = CliRunner()
 
 def test_package_version() -> None:
     """Verify package version string."""
-    assert rcwa.__version__ == "0.1.0"
+    assert rcwa.__version__ == "0.1.1"
 
 
 def test_cli_version_flag() -> None:
     """Verify cli --version flag returns version and exits cleanly."""
     result = runner.invoke(cli.app, ["--version"])
     assert result.exit_code == 0
-    assert "rcwa 0.1.0" in result.stdout
+    assert "rcwa 0.1.1" in result.stdout
 
 
 def test_cli_version_subcommand() -> None:
     """Verify cli version subcommand returns version."""
     result = runner.invoke(cli.app, ["version"])
     assert result.exit_code == 0
-    assert "rcwa 0.1.0" in result.stdout
+    assert "rcwa 0.1.1" in result.stdout
 
 
 def test_cli_version_callback_noop() -> None:
@@ -138,7 +138,7 @@ def test_wrap_version() -> None:
     """Verify rcwa-wrap version options and callback."""
     result = runner.invoke(wrap.app, ["--version"])
     assert result.exit_code == 0
-    assert "rcwa-wrap 0.1.0" in result.stdout
+    assert "rcwa-wrap 0.1.1" in result.stdout
 
     assert wrap.version_callback(False) is None
 
