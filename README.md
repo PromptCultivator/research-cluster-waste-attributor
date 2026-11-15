@@ -5,6 +5,8 @@
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![Code Style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](pyproject.toml)
 
+![Research Cluster Waste Attributor](.github/social-preview.png)
+
 `research-cluster-waste-attributor` (`rcwa`) ingests batch-scheduler accounting traces, partitions reserved CPU core-seconds and memory megabyte-seconds across four non-overlapping waste classes and used consumption under exact conservation guarantees, recommends guarded resource limits, and simulates queue wait-time impact with a calibrated EASY-backfill scheduler before limits change in production.
 
 **Status**: Verified and benchmarked on `Intel(R) Xeon(R) Platinum 8481C` (`20k` planted-waste benchmark in [`bench/results/bench.md`](bench/results/bench.md)).
