@@ -2,85 +2,82 @@
 
 ## 1. Overview
 
-The attribution engine (`rcwa/attribute.py`) partitions every reserved core-second and megabyte-second into four non-overlapping waste classes, utilized capacity, or unattributed metrics. The engine strictly enforces **Guarantee G1 (Conservation)**, ensuring no capacity is double-counted or lost in rounding.
+[`rcwa/attribute.py`](../../rcwa/attribute.py) implements `attribute_trace(canonical_df, policy=None)` and `export_attributed_records(df, path, format="parquet")`. It partitions every reserved CPU core-second and memory megabyte-second into utilized capacity, four mutually exclusive waste classes, or explicitly accounted unattributed buckets, enforcing **Guarantee G1 (Conservation)**.
 
 ---
 
-## 2. Waste Classification Taxonomy
+## 2. Pre-Attribution Filtering and Policy Parameters
 
-1. **Class 1: Memory Over-Request**
-   Memory allocated above the job's peak resident set size ($MaxRSS$).
-   $$\text{over\_mem\_mb\_s} = \max(0, \text{req\_mem\_mb} - \text{max\_rss\_mb}) \times \text{run\_s}$$
-
-2. **Class 2: Idle Reserved CPU**
-   Core allocation unused during execution.
-   $$\text{idle\_core\_s} = \max(0, \text{reserved\_core\_s} - \text{cpu\_time\_used\_s})$$
-
-3. **Class 3: Failed and Retried Work**
-   Entire reservation of jobs terminated abnormally (`FAILED`, `TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL`, `PREEMPTED`, or `CANCELLED` after starting). Sub-labels include:
-   - `oom`: Out-of-memory termination.
-   - `timeout`: Exceeded wallclock time limit.
-   - `early_failure`: Failed within 60 seconds ($\text{run\_s} \le 60$).
-   - `cancelled_after_start`: User cancelled after compute began ($\text{run\_s} > 0$).
-   - `node_fail`: Machine failure.
-   - `other_failure`: Generic application abort.
-
-4. **Class 4: Redundant Recomputation**
-   Entire reservation of successful jobs that executed the same command on identical inputs as an earlier successful run within `recompute_window` (default 30 days).
+1. **Active Job Filtering**: Rows with `state` in `{"RUNNING", "PENDING"}` are excluded prior to attribution (and summarized under report Data Quality exclusion counts).
+2. **Memory Null Normalization**: `reserved_mem_mb_s` nulls (arising from `req_mem_mb = None`) are filled with `0` (`DEC-008`) so integer arithmetic satisfies `0 == 0 + 0 + 0 + 0 + 0`.
+3. **Policy Settings**: Reads `attribution` parameters from `policy` (dict, YAML path, or `policies/default.yaml`):
+   - `retry_window_s` (default `86400`)
+   - `recompute_window_s` (default `2592000`)
+   - `early_failure_threshold_s` (default `60`)
+4. **Pre-Pass Chains & Recomputation**: Executes `detect_retry_chains(df, retry_window_s)` followed by `detect_recomputations(df_with_retries, recompute_window_s)`.
 
 ---
 
-## 3. Precedence Cascade Hierarchy
+## 3. Single-Pass Precedence Cascade
 
-To prevent double-counting across overlapping causes (e.g. an idle CPU in a job that ultimately timed out), attribution executes via a single-pass precedence hierarchy:
+To eliminate double counting when multiple waste factors co-occur, each job evaluates through three strict tiers:
 
-```
-[ Job Record ]
+```text
+[ Terminated Canonical Record (RUNNING/PENDING excluded, reserved_mem_mb_s null -> 0) ]
        │
        ▼
-[ Is State in FAILED, TIMEOUT, OOM, NODE_FAIL, PREEMPTED, or CANCELLED (run_s > 0)? ]
-       ├── YES ──► Class 3 (Failed Work)
-       │           Entire reservation assigned to Class 3.
-       │           Sub-label assigned. Evaluation finishes.
+[ state in {FAILED, TIMEOUT, OUT_OF_MEMORY, NODE_FAIL, PREEMPTED} OR (state == CANCELLED and run_s > 0) OR (run_s == 0)? ]
+       ├── YES ──► Class 3 (Failed & Retried Work)
+       │           class3_core_s = reserved_core_s; class3_mem_mb_s = reserved_mem_mb_s
+       │           All other partition columns = 0.
+       │           Assign class3_sub_label in order:
+       │             1. run_s <= early_failure_threshold_s -> "early_failure"
+       │             2. state == "OUT_OF_MEMORY"           -> "oom"
+       │             3. state == "TIMEOUT"                 -> "timeout"
+       │             4. state == "NODE_FAIL"               -> "node_fail"
+       │             5. state == "CANCELLED"               -> "cancelled_after_start"
+       │             6. otherwise                          -> "other_failure"
        │
-       └── NO (COMPLETED)
-            │
-            ▼
-       [ Does (command_hash, input_hash) match an earlier COMPLETED job within window? ]
-            ├── YES ──► Class 4 (Redundant Recomputation)
-            │           Entire reservation assigned to Class 4. Evaluation finishes.
-            │
-            └── NO (Unique Successful Job)
-                 │
-                 ▼
-            [ Dimension-Specific Partitioning ]
-                 ├─ Core Dimension:
-                 │    If cpu_time_used_s is null:
-                 │        core_unattributed = reserved_core_s
-                 │    Else:
-                 │        idle_core_s = max(0, reserved_core_s - cpu_time_used_s)
-                 │        used_core_s = reserved_core_s - idle_core_s
-                 │        idle_core_s assigned to Class 2.
-                 │
-                 └─ Memory Dimension:
-                      If max_rss_mb is null:
-                          mem_unattributed = reserved_mem_mb_s
-                      Else:
-                          over_mem_mb_s = max(0, req_mem_mb - max_rss_mb) * run_s
-                          used_mem_mb_s = reserved_mem_mb_s - over_mem_mb_s
-                          over_mem_mb_s assigned to Class 1.
+       └── NO ──► [ is_recompute == True? (non-SWF COMPLETED match on command_hash + input_hash) ]
+                   ├── YES ──► Class 4 (Redundant Recomputation)
+                   │           class4_core_s = reserved_core_s; class4_mem_mb_s = reserved_mem_mb_s
+                   │           All other partition columns = 0.
+                   │
+                   └── NO ──► [ Independent Resource Dimension Partitioning ]
+                               ├─ Core Dimension:
+                               │    If cpu_time_used_s is null:
+                               │        unattributed_core_s = reserved_core_s
+                               │    Else:
+                               │        rounded_cpu = max(0, int(round(cpu_time_used_s)))
+                               │        class2_idle_core_s = max(0, reserved_core_s - rounded_cpu)
+                               │        used_core_s = reserved_core_s - class2_idle_core_s
+                               │
+                               └─ Memory Dimension:
+                                    If req_mem_mb is null or reserved_mem_mb_s == 0:
+                                        used_mem_mb_s = class1_over_mem_mb_s = unattributed_mem_mb_s = 0
+                                    Elif max_rss_mb is null:
+                                        unattributed_mem_mb_s = reserved_mem_mb_s
+                                    Else:
+                                        over_rate = max(0, req_mem_mb - max_rss_mb)
+                                        class1_over_mem_mb_s = min(reserved_mem_mb_s, over_rate * run_s)
+                                        used_mem_mb_s = reserved_mem_mb_s - class1_over_mem_mb_s
 ```
+
+Notice that `possible_recompute` (`command_only` matches without verified `input_hash`) and `recompute_confidence` propagate as audit metadata on every row without allocating resources to Class 4.
 
 ---
 
-## 4. Guarantee G1: Conservation Identity
+## 4. Guarantee G1 and Emitted Columns
 
-For every job record $i$, conservation holds across both resource dimensions without integer deviation:
+For every attributed row $i$, exact integer conservation holds:
 
-### Core Dimension:
-$$\text{reserved\_core\_s}_i \equiv \text{used\_core\_s}_i + \text{class2\_core\_s}_i + \text{class3\_core\_s}_i + \text{class4\_core\_s}_i + \text{unattributed\_core\_s}_i$$
+$$\text{reserved\_core\_s}_i \equiv \text{used\_core\_s}_i + \text{class2\_idle\_core\_s}_i + \text{class3\_core\_s}_i + \text{class4\_core\_s}_i + \text{unattributed\_core\_s}_i$$
 
-### Memory Dimension:
-$$\text{reserved\_mem\_mb\_s}_i \equiv \text{used\_mem\_mb\_s}_i + \text{class1\_mem\_mb\_s}_i + \text{class3\_mem\_mb\_s}_i + \text{class4\_mem\_mb\_s}_i + \text{unattributed\_mem\_mb\_s}_i$$
+$$\text{reserved\_mem\_mb\_s}_i \equiv \text{used\_mem\_mb\_s}_i + \text{class1\_over\_mem\_mb\_s}_i + \text{class3\_mem\_mb\_s}_i + \text{class4\_mem\_mb\_s}_i + \text{unattributed\_mem\_mb\_s}_i$$
 
-Cluster-wide totals reported in summary tables are exact column sums of these per-job values. Automated regression tests recompute table sums from individual records to guarantee zero discrepancies.
+In addition to the canonical columns and `retry_*` columns from `detect_retry_chains`, `attribute_trace` attaches:
+- Core partition (`Int64`): `used_core_s`, `class2_idle_core_s` (and alias `idle_core_s`), `class3_core_s`, `class4_core_s`, `unattributed_core_s` (and alias `unattributed_cpu_s`).
+- Memory partition (`Int64`): `used_mem_mb_s`, `class1_over_mem_mb_s` (and alias `over_mem_mb_s`), `class3_mem_mb_s`, `class4_mem_mb_s`, `unattributed_mem_mb_s`.
+- Classification metadata: `class3_sub_label` (`String`), `possible_recompute` (`Boolean`), `recompute_confidence` (`String`).
+
+`export_attributed_records(df, path, format="parquet")` writes attributed tables to Parquet or CSV (selected by `format` or `.csv` file extension).

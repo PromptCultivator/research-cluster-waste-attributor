@@ -4,15 +4,15 @@
 Accepted
 
 ## Context
-Processing millions of scheduler accounting rows requires high data ingestion speed and expressive vector operations. External cluster dependencies or distributed query engines introduce operational overhead and reproducibility challenges.
+Processing large Slurm accounting exports and public SWF traces requires fast text ingestion and vectorized aggregations without introducing external database servers, distributed workers, or nondeterministic container networking overhead.
 
 ## Options
-1. **Single-Process Polars**: Use Polars and Apache Arrow in a single Python process, leveraging multi-threaded vector execution on workstation hardware.
-2. **Distributed Engine (Apache Spark / Ray Data)**: Distribute tabular processing across a cluster of worker nodes.
-3. **Relational Database (DuckDB / SQLite)**: Store records in an embedded relational SQL engine.
+1. **Single-Process Polars & Apache Arrow**: Execute all tabular normalization, attribution, aggregation, and reporting inside one Python process backed by Polars (`1.14.0`) and PyArrow (`18.1.0`), lazily loading PyArrow/Pydantic objects only when needed.
+2. **Distributed Engine (Apache Spark / Ray Data)**: Spin up cluster workers for batch trace transformation.
+3. **Embedded Relational SQL Engine (DuckDB / SQLite)**: Offload record storage and joins to an embedded SQL runtime.
 
 ## Decision
-Adopt Option 1: Single-Process Polars. Polars provides predictable performance without external daemon processes, network sockets, or container runtimes. The pipeline runs locally from a single command invocation, ensuring reproducible execution on development workstations.
+Adopt Option 1: Single-Process Polars & Apache Arrow (declared in [`pyproject.toml`](../../pyproject.toml) and [`rcwa/model.py`](../../rcwa/model.py)). All trace transformations run deterministically in-process with zero external daemons or background network services. Lazy module-level attribute loading defers `pyarrow` and `pydantic` import costs (~240ms) during fast CLI invocations while preserving `POLARS_CANONICAL_SCHEMA` and full static type safety.
 
 ## Measured or Expected Cost
-Maximum trace volume is bounded by available physical RAM on the executing machine. Ingestion memory usage is tracked and reported during benchmarks to verify bounds.
+Peak dataset size is bounded by single-host physical RAM. On `Intel(R) Xeon(R) Platinum 8481C` (`bench/results/bench.md`), full 20,000-job end-to-end execution achieves `34,610.4` jobs/s `sacct` ingestion and `90,486.8` jobs/s baseline simulation while keeping peak process memory at `310.77 MB`.

@@ -2,49 +2,44 @@
 
 ## 1. Overview
 
-The grouping and ranking module (`rcwa/groups.py`) aggregates attributed job records into distinct analytical cohorts, applies sample size floors, computes composite reclaim scores, and ranks candidate groups for capacity reclamation.
+[`rcwa/groups.py`](../../rcwa/groups.py) implements `group_jobs(attributed_df, policy=None, group_keys=None)`, `generate_secondary_rollups(attributed_df, policy=None)`, and `export_group_metrics(df, path, format="parquet")` under `GROUP_METRICS_SCHEMA`.
 
 ---
 
-## 2. Grouping Hierarchy
+## 2. Grouping Keys and Secondary Rollups
 
-Group definitions are declared in policy configuration files (`policies/default.yaml`).
+### 2.1 Primary Cohort Key
 
-### 2.1 Primary Group Key
-By default, jobs are grouped by:
-$$\text{Primary Key} = (\text{user}, \text{command\_hash\_or\_job\_name})$$
-where `command_hash_or_job_name` evaluates to `command_hash` when present, or `job_name` otherwise.
+Configured under `grouping.group_keys` in policy YAML (`policies/default.yaml`):
+- Default keys: `["user", "command_hash_or_job_name"]`, rendered as `"{user}/{task}"`.
+- `command_hash_or_job_name` prefers non-empty **`job_name`** first, falling back to **`command_hash`**, then `"unknown"`.
+- Custom `group_keys` (single column or arbitrary list) join non-empty string values with `/` (`"unknown"` fallback).
 
 ### 2.2 Secondary Rollups
-To support organizational accounting, the engine aggregates secondary tables across:
-- `account`: Departmental or billing project charge codes.
-- `partition`: Cluster queues and hardware tiers.
-- `user`: Per-engineer summaries.
+
+`generate_secondary_rollups` computes three additional aggregated tables over `group_jobs` using single keys:
+- `account`: Billing project or SWF group ID.
+- `partition`: Cluster partition or SWF queue.
+- `user`: Individual user summaries.
 
 ---
 
-## 3. Sample Size Floor
+## 3. Reclaim Scoring, OOM Memory Zeroing, and Sample Flagging
 
-Groups with sparse sample counts exhibit volatile statistical distributions. To ensure stability and prevent erroneous changes to production limits:
-- The policy enforces `min_samples` (default: 5).
-- Groups with fewer jobs than `min_samples` receive no rightsizing recommendation (`action = "below_sample_floor"`).
-- Reclaimable capacity for these groups is excluded from actionable reclaim totals, though observed waste remains accounted for in data quality reports.
-
----
-
-## 4. Reclaim Scoring and Prioritization
-
-Groups are ranked by total reclaimable capacity, weighted by the cluster's core-to-memory hardware exchange ratio:
-
-$$\text{Reclaim Score} = \text{reclaim\_core\_hours} + \left( w_{\text{mem}} \times \text{reclaim\_gb\_hours} \right)$$
-
-where:
-- $\text{reclaim\_core\_hours} = \sum (\text{class2\_core\_s} + \text{class4\_core\_s}) / 3600$
-- $\text{reclaim\_gb\_hours} = \sum (\text{class1\_mem\_mb\_s} + \text{class4\_mem\_mb\_s}) / (3600 \times 1024)$
-- $w_{\text{mem}}$: Configurable weight (`mem_weight_core_hours_per_gb_hour`), derived from cluster hardware configuration (default 0.25 core-hours per GB-hour, corresponding to nodes with 4 GB of RAM per core).
+For each cohort, `1 GB-hour = 1024 * 3600 MB-seconds` (`3,686,400` MB-s). `group_jobs` computes:
+- `has_oom`: `(state == "OUT_OF_MEMORY") | (class3_sub_label == "oom")` across any job in the group.
+- `reclaimable_core_hours = class2_idle_core_hours + class4_recompute_core_hours`.
+- `reclaimable_gb_hours`: **`0.0` when `has_oom` is true** (Guarantee G2 protection preventing memory reclamation on OOM cohorts); otherwise `class1_over_mem_gb_hours + class4_recompute_gb_hours`.
+- `reclaim_score` (and duplicate alias column `score`):
+  $$\text{reclaim\_score} = \text{reclaimable\_core\_hours} + w_{\text{mem}} \times \text{reclaimable\_gb\_hours}$$
+  where $w_{\text{mem}}$ (`attribution.mem_weight_core_hours_per_gb_hour`) defaults to `0.25`.
+- `sample_count_ok`: Boolean `job_count >= min_samples` (default `5`). While downstream [`rcwa/recommend.py`](../../rcwa/recommend.py) withholds resource reductions when `sample_count_ok` is `False` (unless `has_oom` holds), `group_jobs` includes every cohort sorted deterministically by `(-reclaim_score, group)`.
+- Cluster Shares: `cluster_reserved_core_share` (`group_reserved_core_hours / cluster_total`) and `cluster_waste_score_share` (`reclaim_score / cluster_total_score`).
 
 ---
 
-## 5. Evidence Extraction
+## 4. Top-5 Evidence Extraction and CSV Export
 
-For each ranked group, the engine extracts the top five job IDs contributing the highest individual waste values. These identifiers are included in summary tables and CSV exports, providing cluster operators with direct audit trails to verify recommendations against raw job traces.
+- Per-job waste score computes `(class2_idle_core_s + class3_core_s + class4_core_s) / 3600.0 + mem_weight * (class1_over_mem_mb_s + class3_mem_mb_s + class4_mem_mb_s) / (1024.0 * 3600.0)`.
+- Within each group, jobs sort by `(-_job_waste_score, job_id)` and record the top 5 identifiers into `evidence_job_ids` (`List(String)`).
+- `export_group_metrics` serializes directly to Parquet, or converts `evidence_job_ids` into semicolon-delimited strings (`";"`) when exporting CSV.

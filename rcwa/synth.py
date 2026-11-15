@@ -102,7 +102,7 @@ def generate_synthetic_trace(
 
     base_time = datetime(2026, 3, 1, 8, 0, 0, tzinfo=UTC)
 
-    # Header line conforming to SPEC.md §5.1
+    # Standard 26-column Slurm sacct header
     header = (
         "JobIDRaw|JobID|User|Account|Partition|QOS|JobName|Submit|Eligible|Start|End|"
         "Elapsed|State|ExitCode|ReqCPUS|AllocCPUS|ReqMem|MaxRSS|AveRSS|TotalCPU|"

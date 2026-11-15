@@ -90,7 +90,7 @@ def attribute_trace(
     Returns:
         Polars DataFrame augmented with waste classification columns satisfying Guarantee G1.
     """
-    # Exclude RUNNING and PENDING jobs from attribution (SPEC section 5.3)
+    # Exclude RUNNING and PENDING jobs from attribution because terminal usage is incomplete
     df = canonical_df.filter(~pl.col("state").is_in(["RUNNING", "PENDING"]))
 
     # Normalize null memory reservations to 0 to preserve integer conservation without type errors

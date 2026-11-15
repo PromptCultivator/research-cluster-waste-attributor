@@ -2,58 +2,49 @@
 
 ## 1. Overview
 
-The recommendation engine (`rcwa/recommend.py`) computes right-sized resource requests across memory, CPU cores, and wallclock limits for qualifying job groups. The engine strictly enforces **Guarantee G2 (Safety Guardrails)** to prevent resource starvations or production disruptions.
+[`rcwa/recommend.py`](../../rcwa/recommend.py) implements `recommend_jobs(attributed_df, policy=None, grouped_df=None, trace_path=None)` and `export_recommendations(recommendations_df, output_path, format="parquet")` under the 33-column `RECOMMENDATIONS_SCHEMA`. It computes percentile memory, CPU, and timeout limits while strictly enforcing **Guarantee G2 (Safety Guardrails)**.
 
 ---
 
-## 2. Rightsizing Formulation
+## 2. Guardrail Priority Order and Formulas
 
-### 2.1 Memory Recommendations
+### 2.1 Sample Floor vs OOM Priority (`DEC-010`)
 
-Memory limits are calculated to prevent memory exhaustion while shedding idle buffer capacity:
-$$\text{req\_mem\_mb}_{\text{rec}} = \left\lceil \text{P99}(\text{max\_rss\_mb} \mid \text{COMPLETED}) \times \text{safety\_factor} \right\rceil$$
+Each group cohort first checks `sample_count_ok = (job_count >= min_samples)` (default `5`) and `has_oom = any(state == "OUT_OF_MEMORY" or class3_sub_label == "oom")`:
+- **OOM Overrides Sample Floor**: If `has_oom` is `True`, escalation executes regardless of `job_count`.
+- **Small Sample Guardrail**: If `not sample_count_ok and not has_oom`, all numeric recommendations (`recommended_req_mem_mb`, `recommended_cpus`, `recommended_time_limit_s`) return `None`, `recommendation_direction = "none"`, and `recommendation_action = "below_sample_floor"`.
 
-Where:
-- $\text{P99}$ evaluates across successful (`COMPLETED`) jobs within the group cohort.
-- `safety_factor` defaults to $1.2$ (providing a 20% head-room margin above observed 99th percentile consumption).
+### 2.2 Memory Recommendations
 
-#### Guardrail Constraints:
-1. **Max RSS Floor**:
-   The recommended memory is never lower than the absolute peak observed RSS across all jobs in the group (regardless of job state):
-   $$\text{req\_mem\_mb}_{\text{rec}} \ge \max_{\text{all}}(\text{max\_rss\_mb})$$
-2. **Out-of-Memory (OOM) Escalation**:
-   If any job in the group cohort experienced an `OUT_OF_MEMORY` termination within the observation window:
-   - The recommendation direction forces an **increase**:
-     $$\text{req\_mem\_mb}_{\text{rec}} = \left\lceil \max_{\text{all}}(\text{max\_rss\_mb}) \times \text{oom\_multiplier} \right\rceil$$
-     where `oom_multiplier` defaults to $1.5$.
-   - The group is explicitly excluded from reclaimable memory capacity sums.
+Let `observed_max_rss` denote peak positive `max_rss_mb` observed across **all** jobs in the cohort regardless of terminal state:
+- **OOM Escalation (`has_oom == True`)**:
+  $$\text{oom\_base} = \text{observed\_max\_rss} \quad (\text{fallback } \max(\text{req\_mem\_mb}) \to 4000)$$
+  $$\text{recommended\_req\_mem\_mb} = \max\left(\left\lceil \text{oom\_base} \times \text{oom\_multiplier} \right\rceil,\ \text{observed\_max\_rss}\right)$$
+  Defaults: `oom_multiplier = 1.5`, `recommendation_direction = "increase"`, `recommendation_action = "oom_increase_mem"`. Upstream `group_jobs` zeros `reclaimable_gb_hours` so OOM cohorts never count toward reclaimable memory savings.
+- **Standard Rightsizing (`has_oom == False`)**:
+  $$\text{recommended\_req\_mem\_mb} = \max\left(\left\lceil \text{P99}(\text{max\_rss\_mb} \mid \text{COMPLETED}) \times \text{safety\_factor} \right\rceil,\ \text{observed\_max\_rss}\right)$$
+  where `percentile = 0.99` and `safety_factor = 1.2`. If no completed job records positive RSS but failed runs do, uses `ceil(observed_max_rss * safety_factor)`; otherwise returns `None`.
 
-### 2.2 CPU Recommendations
+### 2.3 CPU Core Recommendations
 
-CPU core allocations are right-sized by matching allocated capacity to active thread execution:
-$$\text{cpus}_{\text{rec}} = \operatorname{clamp}\left( \left\lceil \text{P99}\left(\frac{\text{cpu\_time\_used\_s}}{\text{run\_s}}\right) \times \text{safety\_factor} \right\rceil, 1, \text{alloc\_cpus} \right)$$
+- **Short-Job Guardrail**: Cohorts whose median duration or all job durations fall strictly under `min_run_s` (default `120` s) emit `recommended_cpus = None` because short startups skew `cpu_time_used_s / run_s` measurements.
+- **Percentile Target**: Over positive rates from `COMPLETED` jobs (`cpu_time_used_s / run_s`):
+  $$\text{recommended\_cpus} = \operatorname{clamp}\left(\left\lceil \text{P99}(\text{rate} \mid \text{COMPLETED}) \times \text{cpu\_safety\_factor} \right\rceil,\ 1,\ \text{observed\_max\_cpus}\right)$$
+  Defaults: `percentile = 0.99`, `safety_factor = 1.2`.
 
-#### Guardrail Constraints:
-- **Short Job Exclusion**:
-  Groups whose median runtime is under 120 seconds ($\text{run\_s} < 120$) receive no CPU core recommendation. Short jobs exhibit high startup and teardown measurement noise, making core-second utilization ratios unreliable.
+### 2.4 Timeout Limit Recommendations
 
-### 2.3 Wallclock Time Limit Recommendations
-
-Groups exhibiting `TIMEOUT` terminations receive right-sized time limit adjustments:
-$$\text{time\_limit}_{\text{rec}} = \left\lceil \text{P99}(\text{run\_s} \mid \text{COMPLETED}) \times 1.5 \right\rceil$$
-
-### 2.4 Early Failures
-
-Groups dominated by early failures ($\text{run\_s} \le 60$) receive no resource adjustments. Instead, the engine surfaces the group in an Early Failure Diagnostic section with sample exit codes, indicating script or environment errors rather than capacity sizing problems.
+Cohorts with any `TIMEOUT` or `class3_sub_label == "timeout"` receive:
+$$\text{recommended\_time\_limit\_s} = \left\lceil \text{P99}(\text{run\_s} \mid \text{COMPLETED}) \times \text{timeout\_multiplier} \right\rceil$$
+(default `multiplier = 1.5`), falling back to `ceil(max(all_runtimes) * multiplier)`, or `3600` seconds if all durations are `0`. Non-timeout cohorts emit `None`.
 
 ---
 
-## 3. Guarantee G2: Verification
+## 3. Directions, Actions, Export, and Verification
 
-Guarantee G2 is verified via automated property-based testing (`hypothesis`):
-- Randomly generated groups with varying sample distributions, state distributions, and resource utilization profiles are evaluated.
-- The property test asserts that:
-  1. Memory recommendations never decrease below observed maximum peak RSS.
-  2. Any group with an OOM occurrence receives an increased allocation.
-  3. Groups with fewer samples than `min_samples` receive no recommendation.
-- Zero guardrail violations across 10,000 generated groups are required for gate clearance.
+Comparing recommended limits against cohort medians (`typical_req_mem`, `typical_alloc_cpus`) assigns:
+- `recommendation_direction`: `"increase"`, `"decrease"`, `"keep"`, or `"none"`.
+- `recommendation_action`: `"oom_increase_mem"`, `"below_sample_floor"`, `"decrease_req_mem_and_cpu"`, `"decrease_req_mem"`, `"decrease_cpu"`, `"increase_resources"`, `"keep_resources"`, or `"none"`.
+- `export_recommendations` exports Parquet or CSV (joining `evidence_job_ids` lists with `;` in CSV).
+
+**Guarantee G2 Property Verification**: [`tests/property/test_safety_guardrails.py`](../../tests/property/test_safety_guardrails.py) exercises `recommend_jobs` across randomized Hypothesis batches and `10,000` generated job cohorts, verifying zero violations of memory RSS floors, OOM escalation/zeroing, sample-floor withholding, and `[1, observed_max_cpus]` clamping.

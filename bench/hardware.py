@@ -74,7 +74,7 @@ def get_hardware_info() -> dict[str, str]:
 
 
 def format_hardware_block() -> str:
-    """Format hardware profile block matching SPEC.md §9 requirements."""
+    """Format host hardware and software environment summary for benchmark reports."""
     info = get_hardware_info()
     return (
         f"CPU Model: {info['cpu_model']}\n"

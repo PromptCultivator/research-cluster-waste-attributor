@@ -2,53 +2,53 @@
 
 ## 1. Overview
 
-The retry chain detector (`rcwa/retries.py`) links failed or terminated jobs to subsequent resubmission attempts. By correlating failures with subsequent executions, the system reveals hidden cluster waste resulting from repeated attempts, multi-hop debugging cycles, and cascading failures.
+[`rcwa/retries.py`](../../rcwa/retries.py) implements `detect_retry_chains(df, retry_window_s=86400)` to identify failed compute jobs and link causal resubmission sequences into structured retry chains.
 
 ---
 
-## 2. Retry Matching Criteria
+## 2. Failure Criteria and Causal Matching
 
-A subsequent job $B$ is identified as a retry attempt of an earlier failed job $A$ when all of the following conditions are met:
+A job $A$ qualifies as a failure seed when:
+$$\text{state}_A \in \{\text{FAILED}, \text{TIMEOUT}, \text{OUT\_OF\_MEMORY}, \text{NODE\_FAIL}, \text{PREEMPTED}\} \lor (\text{state}_A = \text{CANCELLED} \land \text{run\_s}_A > 0) \lor (\text{run\_s}_A = 0 \land \text{state}_A \notin \{\text{RUNNING}, \text{PENDING}\})$$
 
-1. **Failure State**:
-   Job $A$ terminated in an abnormal state:
-   $$\text{state}_A \in \{\text{FAILED}, \text{TIMEOUT}, \text{OUT\_OF\_MEMORY}, \text{NODE\_FAIL}, \text{PREEMPTED}\} \lor (\text{state}_A = \text{CANCELLED} \land \text{run\_s}_A > 0)$$
+Effective end time for $A$ resolves using:
+$$\text{eff\_end}_A = \text{coalesce}(\text{end\_time}_A,\ \text{start\_time}_A + \text{run\_s}_A,\ \text{submit\_time}_A + \text{wait\_s}_A + \text{run\_s}_A)$$
 
-2. **Identical User**:
-   $$\text{user}_B == \text{user}_A$$
-
-3. **Command Signature Match**:
-   If both jobs provide `command_hash`, they must match:
-   $$\text{command\_hash}_B == \text{command\_hash}_A$$
-   If `command_hash` is unavailable, matching falls back to `job_name`:
-   $$\text{job\_name}_B == \text{job\_name}_A$$
-
-4. **Temporal Ordering and Horizon Window**:
-   Job $B$ must be submitted after Job $A$'s submission, within the configurable `retry_window` (default 24 hours):
-   $$0 < \text{submit\_time}_B - \text{submit\_time}_A \le \text{retry\_window\_seconds}$$
+A subsequent job $B$ matches as a candidate retry of $A$ when all conditions hold:
+1. **Identical User & Task Signature**: Rows group strictly by `(user, command_hash or job_name)`. Jobs lacking either `user` or a task identifier cannot participate in retry linking.
+2. **Non-Self & Unclaimed**: $B \neq A$ and $B$ has not already been claimed as the child retry of an earlier failure.
+3. **Causal Resubmission Window**: $B$'s `submit_time` occurs at or after $A$'s effective end time within `retry_window_s` (default `86400` seconds = 24 hours):
+   $$0 \le (\text{submit\_time}_B - \text{eff\_end}_A).\text{total\_seconds}() \le \text{retry\_window\_s}$$
 
 ---
 
-## 3. Causal Multi-Hop Chain Linking
+## 3. Deterministic 1-to-1 Claiming and Multi-Hop Chains
 
-When users resubmit jobs repeatedly across a debugging session, failures chain into multi-hop sequences ($A \to B \to C$):
+Within each `(user, task_id)` group:
+1. Failures with known `eff_end` sort chronologically by `(eff_end, submit_time, row_index, job_id)`.
+2. Each failure selects the earliest unclaimed eligible resubmission $B$ ordered by `(submit_time_B, job_id_B)`, guaranteeing causal 1-to-1 linkage without cycles or double-claiming.
+3. Multi-hop chains ($A \to B \to C$) trace upward to the chain's root failure (`retry_chain_id`) and traverse depth-first to assign hop distances (`retry_count`, `0` at root, incremented along descendants). Chains require at least `2` participating jobs (root + at least one resubmission); unlinked standalone jobs retain `retry_chain_id = null` and `retry_count = 0`.
 
-```
-[ Job A: Failed (OOM) ]
-       │  (Submitted: T=0, Window <= 24h)
+```text
+[ Job A: OUT_OF_MEMORY ]   retry_of = null, retry_chain_id = A, retry_count = 0
+       │  (submit_B - eff_end_A <= retry_window_s)
        ▼
-[ Job B: Failed (Timeout) ]  <-- Marked: retry_of = A
-       │  (Submitted: T=4h, Window <= 24h)
+[ Job B: TIMEOUT ]         retry_of = A,    retry_chain_id = A, retry_count = 1
+       │  (submit_C - eff_end_B <= retry_window_s)
        ▼
-[ Job C: Completed ]         <-- Marked: retry_of = B
+[ Job C: COMPLETED ]       retry_of = B,    retry_chain_id = A, retry_count = 2
 ```
 
-### Algorithmic Rules:
-- **1-to-1 Earliest Candidate Assignment**:
-  To guarantee deterministic, causal chains, each failed job claims the earliest eligible resubmission in chronological order. A single resubmission cannot serve as the direct retry of two distinct prior failures.
-- **Chain Metrics**:
-  The detector aggregates the cumulative cost across the chain:
-  $$\text{chain\_core\_hours} = \sum_{j \in \text{chain}} \frac{\text{reserved\_core\_s}_j}{3600}$$
-  $$\text{chain\_gb\_hours} = \sum_{j \in \text{chain}} \frac{\text{reserved\_mem\_mb\_s}_j}{3600 \times 1024}$$
-- **Independent Attribution**:
-  While chain associations are tracked for reporting, each individual job in the chain remains attributed strictly via the precedence cascade (Section 3 of attribution design). Failed links are assigned to Class 3; the eventual successful run is attributed according to its actual utilization and right-sizing opportunity.
+---
+
+## 4. Emitted Columns
+
+| Column | Type | Meaning |
+|---|---|---|
+| `retry_of` | `String?` | Immediate preceding failed job ID claimed by this resubmission (`null` for roots/unlinked jobs). |
+| `retry_chain_id` | `String?` | Root job ID identifying the multi-hop retry chain (`null` if standalone). |
+| `retry_count` | `Int32` | Hop distance from the chain root (`0` at root or standalone jobs; `>= 1` on retries). |
+| `retry_chain_cost_core_s` | `Int64` | Total `reserved_core_s` summed across all jobs in the chain (`0` if standalone). |
+| `retry_chain_cost_mem_mb_s` | `Int64?` | Total `reserved_mem_mb_s` across chain members (`null` if none record memory or standalone). |
+
+Primary resource attribution still evaluates each row independently through the conservation precedence cascade (`attribute.py`).

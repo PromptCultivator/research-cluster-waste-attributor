@@ -2,57 +2,53 @@
 
 ## 1. Overview
 
-The reporting engine (`rcwa/report.py`) transforms attributed records, ranked reclamation cohorts, simulation replays, and calibration diagnostics into structured human-readable and machine-readable deliverables.
-
-The engine supports three export formats:
-1. **Markdown (`.md`)**: Executive summary and detailed tables for engineering review.
-2. **JSON (`.json`)**: Machine-readable data structure for automated pipeline ingestion.
-3. **CSV (`.csv`)**: Tabular export of ranked cohorts for spreadsheet analysis.
-
-The reporting engine enforces **Guarantee G3 (Determinism)**: identical trace inputs and configurations generate byte-identical output artifacts.
+[`rcwa/report.py`](../../rcwa/report.py) compiles attributed traces, cohort recommendations, early-failure summaries, result cache projections, secondary rollups, all six counterfactual simulator runs, and calibration diagnostics into deterministic structured dictionaries (`build_report_data`), human-readable Markdown (`render_markdown_report`), JSON, and tabular CSV reclaim lists (`render_csv_report`).
 
 ---
 
-## 2. Report Sections and Structure
+## 2. Compiled Report Structure (`build_report_data`)
 
-Generated reports include five standardized sections:
+```python
+build_report_data(
+    canonical_df: pl.DataFrame,
+    attributed_df: pl.DataFrame,
+    policy: Any = None,
+    cluster: Any = None,
+    simulation_scenarios: dict[str, Any] | None = None,
+    calibration: dict[str, Any] | None = None,
+    include_simulation: bool = True,
+) -> dict[str, Any]
+```
 
-### 2.1 Executive Summary
-Presents high-level workload and waste indicators:
-- Total jobs analyzed, active jobs excluded, and evaluation timespan.
-- Total core-hours and GB-hours reserved vs utilized.
-- Total reclaimable capacity by category and percentage of cluster capacity.
+Compiles nine top-level keys, passed through `_round_floats(report, digits=6)` with recursively sorted dictionary keys to guarantee **Guarantee G3 (Byte Determinism)**:
 
-### 2.2 Waste Partition by Class
-Breaks down the non-overlapping allocation of cluster resources:
-- Class 1: Memory Over-Request
-- Class 2: Idle Reserved CPU
-- Class 3: Failed and Retried Work (with sub-label breakdown: `oom`, `timeout`, `early_failure`)
-- Class 4: Redundant Recomputation
-- Used Capacity
-- Unattributed Metrics
+1. `summary`: `total_jobs`, `evaluated_jobs`, `excluded_jobs`, `total_reserved_core_hours`, `total_used_core_hours`, `total_reserved_gb_hours`, `total_used_gb_hours`.
+2. `waste_classification`: Per-class totals in core-hours and GB-hours (`class1`–`class4` and unattributed). When every record originates from `"swf"`, sets `class4_redundant_core_hours = 0.0`, `class4_redundant_gb_hours = 0.0`, and `"class4_status": "not available"`.
+3. `ranked_reclaim_list`: Ordered cohorts with `rank`, `group`, `count`, `reclaim_core_hours`, `reclaim_gb_hours`, `score`, nested `recommendation` (`req_mem_mb`, `cpus`, `direction`), `recommendation_action`, and `evidence_job_ids`.
+4. `data_quality`: `excluded_active_count` (`RUNNING`/`PENDING`), `unattributed_cpu_share_pct`, `unattributed_memory_share_pct`, and `declared_input_coverage_pct`.
+5. `early_failure_groups`: Cohorts containing `class3_sub_label == "early_failure"`, recording `failure_count`, `total_jobs`, `failure_share`, and up to `5` unique `sample_exit_codes`.
+6. `result_cache`: Group hit rates and reclaimable savings produced by `simulate_result_cache`.
+7. `secondary_rollups`: Cohort metric lists computed by `user`, `account`, and `partition` (serialized in JSON).
+8. `simulation_scenarios`: Automatically replays all 6 scenarios (`baseline`, `mem_rightsized`, `cpu_rightsized_none`, `cpu_rightsized_proportional`, `cache_dedup`, `all`) when `include_simulation=True` and `simulation_scenarios is None`.
+9. `calibration`: Baseline `median_absolute_error_s` and `spearman_rank_correlation` computed automatically when `wait_s` and `include_simulation=True` apply (`calibration is None`).
 
-A summary balance check validates that all components sum exactly to 100% of reservation, reinforcing Guarantee G1.
+---
 
-### 2.3 Ranked Reclaim List
-Presents candidate cohorts ordered by weighted reclaim score:
-- Rank and Group Name (`user/command_hash_or_job_name`).
-- Sample Count.
-- Reclaimable Core-Hours and GB-Hours.
-- Recommended Action and Resource Adjustments (`req_mem_mb`, `cpus`, `time_limit`).
-- Sample Evidence (Top 5 Job IDs).
+## 3. Output Renderers
 
-### 2.4 Scenario Impact Projections
-Compares simulated replay results against historical and simulated baselines:
-- Median and P95 Queue Wait Times.
-- Total Cluster Makespan.
-- Average Core and Memory Utilization.
-- Completed Jobs per Simulated Day.
-- Stated Baseline Calibration Metrics (MAE, Spearman $\rho_s$).
+### 3.1 `render_markdown_report(report_data)`
 
-### 2.5 Data Quality and Diagnostics
-Audits trace health and instrumentation coverage:
-- Active / Incomplete Jobs (`RUNNING`, `PENDING`).
-- Jobs with missing RSS or CPU time measurements.
-- Early failure rate ($\le 60$s) and associated exit codes.
-- Candidate recomputation matches flagged as `command_only` without declared input hashes.
+Produces Markdown sections in fixed order:
+- `## Summary`
+- `## Waste Classification` (displays `not available` for Class 4 cells when `class4_status == "not available"`)
+- `## Ranked Reclaim List` (formats `None (< min_samples)` and `req_mem_mb=...M (OOM escalation)` explicitly)
+- `## Data Quality Accounting`
+- `## Early Failure Groups` *(omitted when `early_failure_groups` is empty)*
+- `## Result Cache Recommendations` *(omitted when no group qualifies `recommended=True`)*
+- `## Simulation Scenarios` *(omitted when scenarios map is empty)*
+- `## Calibration Metrics` *(omitted when calibration map is empty)*
+
+### 3.2 `render_csv_report(report_data)`
+
+Emits RFC-compatible header and rows for the ranked reclaim table:
+`rank,group,count,reclaim_core_hours,reclaim_gb_hours,score,recommendation_action,evidence_job_ids`, joining `evidence_job_ids` lists with `";"`.

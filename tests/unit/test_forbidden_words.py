@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 
-# Terms prohibited by project specification constructed dynamically
+# Vocabulary exclusions for repository documentation and source files, constructed dynamically
 FORBIDDEN_WORDS = [
     "simp" + "ly",
     "ro" + "bust",
@@ -30,14 +30,10 @@ EXCLUDED_DIRS = {
     ".ruff_cache",
     "__pycache__",
     ".hypothesis",
-    ".agents",
     "data",
 }
 
 EXCLUDED_FILES = {
-    "SPEC.md",
-    "PROJECT.md",
-    "ORIGINAL_REQUEST.md",
     "test_forbidden_words.py",
 }
 

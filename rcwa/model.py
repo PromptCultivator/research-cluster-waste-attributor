@@ -1,7 +1,7 @@
 """Canonical job record model and PyArrow/Polars schemas.
 
-Represents batch-scheduler accounting records in the canonical schema
-specified in SPEC section 5.3.
+Represents batch-scheduler accounting records in the unified canonical
+job schema used across ingestion, attribution, rightsizing, and simulation.
 """
 
 from datetime import datetime

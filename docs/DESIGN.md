@@ -2,43 +2,43 @@
 
 ## 1. Overview and Problem Statement
 
-Batch schedulers on high-performance computing and research clusters allocate compute cores and system memory based on limits requested by users rather than physical consumption during execution. Across quantitative trading, scientific computing, and financial modeling workloads, reserved capacity deviates significantly from utilized capacity due to four systematic causes:
+Batch schedulers on high-performance computing and research clusters allocate compute cores and memory from user-submitted requests rather than physical runtime consumption. Across quantitative modeling, simulation, and data-intensive workloads, reserved capacity diverges from utilized capacity through four distinct causes:
 
-1. **Memory Over-Request (Class 1)**: Memory requested far above the job's peak resident set size (MaxRSS).
-2. **Idle Reserved CPU (Class 2)**: Multi-core allocations where code executes largely single-threaded, leaving cores unused.
-3. **Failed and Retried Work (Class 3)**: Compute consumed by jobs that crash, exceed memory limits (OOM), hit wallclock time limits, or fail on host nodes, followed by resubmissions.
-4. **Redundant Recomputation (Class 4)**: Successful executions that compute outputs identical to earlier runs given identical input data and commands.
+1. **Memory Over-Request (Class 1)**: Requested memory far above observed peak resident set size (`MaxRSS`).
+2. **Idle Reserved CPU (Class 2)**: Multi-core reservations running under-threaded or I/O-stalled execution.
+3. **Failed and Retried Work (Class 3)**: Capacity consumed by jobs terminating with failure, out-of-memory kills, wallclock timeouts, node faults, post-start cancellations, or zero-duration starts, plus linked resubmissions.
+4. **Redundant Recomputation (Class 4)**: Completed executions running identical normalized commands against identical declared input hashes within a configured horizon.
 
-Arbitrarily reducing limits across cluster users introduces risks of production job failure, out-of-memory terminations, and delayed pipelines. The Research Cluster Waste Attributor (`rcwa`) provides an end-to-end framework that ingests scheduler accounting data, partitions every reserved core-second and megabyte-second into non-overlapping waste classes, computes right-sized allocations protected by safety guardrails, and simulates the schedule replay through a discrete-event scheduler simulator before limits are altered in production.
+Lowering submission limits blindly introduces production disruption and cascading out-of-memory failures. `research-cluster-waste-attributor` (`rcwa`) ingests accounting traces, partitions every reserved core-second and megabyte-second into non-overlapping categories under exact conservation, recommends guarded limits, and evaluates queue wait-time deltas through a calibrated EASY-backfill scheduler simulator before limits are adjusted.
 
 ---
 
 ## 2. Core Architectural Principles and Guarantees
 
-The design enforces four verifiable guarantees:
+The architecture enforces four verifiable guarantees:
 
-```
+```text
 +------------------------------------------------------------------------------------+
 |                                SYSTEM GUARANTEES                                   |
 +------------------------------------------------------------------------------------+
 |  [G1] Conservation:                                                                |
-|       For every job and dimension:                                                 |
+|       For every evaluated job and dimension:                                       |
 |       Reserved = Utilized + Attributed Waste + Unattributed                        |
-|       Holds exactly in integer core-seconds and megabyte-seconds.                  |
+|       Holds strictly in integer core-seconds and megabyte-seconds.                 |
 +------------------------------------------------------------------------------------+
 |  [G2] Safety Guardrails:                                                           |
-|       Recommended memory is never below observed peak RSS * safety factor.         |
-|       Groups with OOM kills receive allocation increases, never reductions.        |
-|       Groups below sample floor receive no recommendation.                         |
+|       Recommended memory is never below observed peak RSS across all states.       |
+|       Groups with OOM kills escalate memory and contribute zero reclaimable mem.   |
+|       Non-OOM groups below min_samples receive no resource recommendations.          |
 +------------------------------------------------------------------------------------+
 |  [G3] Determinism:                                                                 |
-|       Identical input accounting records and policy configurations generate        |
-|       byte-identical reports, tables, and scenario projections.                    |
+|       Identical input accounting traces and YAML configurations yield              |
+|       byte-identical Parquet, CSV, JSON, and Markdown outputs.                     |
 +------------------------------------------------------------------------------------+
 |  [G4] Simulator Validity:                                                          |
-|       Every job schedules exactly once per scenario.                               |
-|       Scheduled start time is never earlier than submit time.                     |
-|       Allocations never exceed cluster node core and memory capacities.            |
+|       Every eligible job schedules once per scenario.                              |
+|       Simulated start time is never earlier than submit time.                      |
+|       Allocated cores and memory never exceed cluster node capacities.             |
 +------------------------------------------------------------------------------------+
 ```
 
@@ -46,26 +46,26 @@ The design enforces four verifiable guarantees:
 
 ## 3. End-to-End System Pipeline
 
-The system processes accounting traces through eight sequential stages:
+Traces traverse eight sequential processing stages in a single OS process:
 
-```
+```text
 [ Raw Accounting Traces ]
-  - Slurm sacct export
-  - Standard Workload Format (SWF)
+  - Slurm sacct export (`sacct -a -P --units=M`)
+  - Standard Workload Format (`SWF` / `.swf.gz`)
             │
             ▼
 ┌─────────────────────────┐
-│     Ingest Adapters     │ ◄─── Decomposes array/pack jobs, parses steps
+│     Ingest Adapters     │ ◄─── Decomposes array/pack jobs, rolls up steps
 └───────────┬─────────────┘
             │
             ▼
 ┌─────────────────────────┐
-│  Normalization Engine   │ ◄─── Unifies units (MB, seconds), state mappings, TRES
+│  Normalization Engine   │ ◄─── Unifies durations (s), memory (MB), states, TRES
 └───────────┬─────────────┘
             │
             ▼
 ┌─────────────────────────┐
-│  Canonical Job Record   │ ◄─── PyArrow / Polars tabular storage (32-byte layout)
+│  Canonical Job Record   │ ◄─── 27-field Apache Arrow & Polars tabular model
 └───────────┬─────────────┘
             │
             ├────────────────────────────────────────┬────────────────────────┐
@@ -79,30 +79,30 @@ The system processes accounting traces through eight sequential stages:
                                      │
                                      ▼
                          ┌───────────────────────┐
-                         │  Group Aggregation &  │ ◄─── Evaluates sample floors,
-                         │  Reclaim Ranking      │      scores reclaimable capacity
+                         │  Group Aggregation &  │ ◄─── Computes weighted reclaim scores
+                         │  Reclaim Ranking      │      and top-5 evidence job IDs
                          └───────────┬───────────┘
                                      │
                                      ▼
                          ┌───────────────────────┐
                          │  Recommendation       │ ◄─── P99 rightsizing, OOM escalation,
-                         │  Engine & Guardrails  │      timeout safety multipliers
+                         │  Engine & Guardrails  │      short-job CPU & timeout guards
                          └───────────┬───────────┘
                                      │
                                      ▼
                          ┌───────────────────────┐
-                         │  EASY-Backfill        │ ◄─── Simulates replay across
-                         │  Scheduler Simulator  │      multiple policy scenarios
+                         │  EASY-Backfill        │ ◄─── Replays six counterfactual
+                         │  Scheduler Simulator  │      cluster scenarios
                          └───────────┬───────────┘
                                      │
                                      ▼
                          ┌───────────────────────┐
-                         │  Calibration Engine   │ ◄─── Compares baseline replay vs
-                         └───────────┬───────────┘      historical wait times (MAE/Spearman)
+                         │  Calibration Engine   │ ◄─── Evaluates baseline replay vs
+                         └───────────┬───────────┘      historical queue waits (MAE/rho)
                                      │
                                      ▼
                          ┌───────────────────────┐
-                         │  Reporting & Export   │ ◄─── Markdown, JSON, CSV summaries
+                         │  Reporting & Export   │ ◄─── Deterministic MD, JSON, CSV
                          └───────────────────────┘
 ```
 
@@ -110,58 +110,63 @@ The system processes accounting traces through eight sequential stages:
 
 ## 4. Architectural Components
 
-The repository is modularized into dedicated components:
+The codebase separates concerns into focused package modules, CLI wrappers, and verification harnesses:
 
 | Component | Implementation | Documentation | Description |
 |---|---|---|---|
-| **Canonical Model** | `rcwa/model.py` | [docs/components/model.md](components/model.md) | Standard Arrow schema, Polars lazy expressions, and Pydantic record models. |
-| **Ingest Adapters** | `rcwa/adapters/` | [docs/components/adapters.md](components/adapters.md) | Slurm `sacct` pipe-delimited parser and Standard Workload Format (SWF) parser. |
-| **Normalization** | `rcwa/normalize.py` | [docs/components/normalize.md](components/normalize.md) | Unit conversions (KB/MB/GB/TB), durations, TRES strings, and state categorizations. |
-| **Attribution** | `rcwa/attribute.py` | [docs/components/attribute.md](components/attribute.md) | Single-pass non-overlapping precedence cascade enforcing Guarantee G1. |
-| **Retry Tracker** | `rcwa/retries.py` | [docs/components/retries.md](components/retries.md) | Temporal linking of failed jobs to resubmission sequences within configurable windows. |
-| **Job Grouping** | `rcwa/groups.py` | [docs/components/groups.md](components/groups.md) | Workload categorization by user/command, secondary rollups, and evidence extraction. |
-| **Recomputation** | `rcwa/recompute.py`, `rcwa/wrap.py` | [docs/components/recompute.md](components/recompute.md) | Input hashing CLI wrapper, Slurm comment/sidecar readers, and duplicate detection. |
-| **Recommendations** | `rcwa/recommend.py` | [docs/components/recommend.md](components/recommend.md) | P99 rightsizing formulas and Guarantee G2 safety constraints. |
-| **Simulator** | `rcwa/simulate.py` | [docs/components/simulate.md](components/simulate.md) | Discrete-event EASY-backfill scheduler supporting multiple counterfactual scenarios. |
-| **Calibration** | `rcwa/calibrate.py` | [docs/components/calibrate.md](components/calibrate.md) | Statistical validation of simulator baseline against observed trace wait times. |
-| **Reporting** | `rcwa/report.py` | [docs/components/report.md](components/report.md) | Output generation in Markdown, JSON, and CSV with data quality auditing. |
-| **Synthetic Generator** | `rcwa/synth.py` | [docs/components/synth.md](components/synth.md) | Workload generator with planted waste categories and known ground-truth outputs. |
+| **CLI & Wrapper** | [`rcwa/cli.py`](../rcwa/cli.py), [`rcwa/wrap.py`](../rcwa/wrap.py) | [`docs/INPUTS.md`](INPUTS.md) | Typer CLI (`rcwa`) and declared input checksum wrapper (`rcwa-wrap`). |
+| **Canonical Model** | [`rcwa/model.py`](../rcwa/model.py) | [`docs/components/model.md`](components/model.md) | 27-field PyArrow schema, Polars schema, and Pydantic `CanonicalJobRecord`. |
+| **Ingest Adapters** | [`rcwa/adapters/`](../rcwa/adapters/) | [`docs/components/adapters.md`](components/adapters.md) | Slurm `sacct` pipe-delimited parser and SWF / gzip parser with pragmas. |
+| **Normalization** | [`rcwa/normalize.py`](../rcwa/normalize.py) | [`docs/components/normalize.md`](components/normalize.md) | Unit conversions (KB/MB/GB/TB/PB + `c`/`n`), durations, TRES strings, state mappings. |
+| **Attribution** | [`rcwa/attribute.py`](../rcwa/attribute.py) | [`docs/components/attribute.md`](components/attribute.md) | Single-pass non-overlapping precedence cascade enforcing Guarantee G1. |
+| **Retry Tracker** | [`rcwa/retries.py`](../rcwa/retries.py) | [`docs/components/retries.md`](components/retries.md) | 1-to-1 earliest candidate linking of failed jobs to resubmission chains. |
+| **Job Grouping** | [`rcwa/groups.py`](../rcwa/groups.py) | [`docs/components/groups.md`](components/groups.md) | Cohort aggregation, secondary rollups, weighted scoring, top-5 evidence extraction. |
+| **Recomputation** | [`rcwa/recompute.py`](../rcwa/recompute.py), [`rcwa/wrap.py`](../rcwa/wrap.py) | [`docs/components/recompute.md`](components/recompute.md) | Sidecar merging, Class 4 detection, `command_only` flagging, result cache estimation. |
+| **Recommendations** | [`rcwa/recommend.py`](../rcwa/recommend.py) | [`docs/components/recommend.md`](components/recommend.md) | P99 rightsizing formulas and Guarantee G2 safety guardrails. |
+| **Simulator** | [`rcwa/simulate.py`](../rcwa/simulate.py) | [`docs/components/simulate.md`](components/simulate.md) | Discrete-event EASY-backfill scheduler supporting homogeneous and partitioned nodes. |
+| **Calibration** | [`rcwa/calibrate.py`](../rcwa/calibrate.py) | [`docs/components/calibrate.md`](components/calibrate.md) | Statistical error and Spearman rank validation against recorded queue waits. |
+| **Reporting** | [`rcwa/report.py`](../rcwa/report.py) | [`docs/components/report.md`](components/report.md) | Deterministic 6-decimal quantized Markdown, JSON, and CSV output generators. |
+| **Synthetic Generator** | [`rcwa/synth.py`](../rcwa/synth.py) | [`docs/components/synth.md`](components/synth.md) | Seeded synthetic `sacct` trace generator paired with `.truth.parquet` labels. |
 
 ---
 
-## 5. Data Flow and In-Memory Lifecycle
+## 5. Data Flow and Lifecycle
 
 1. **Ingestion & Normalization**:
-   - Raw records are read from text files into columnar chunks.
-   - Durations formatted as `D-HH:MM:SS` or `MM:SS.mmm` convert to integer seconds.
-   - Memory specifications (`4000Mc`, `16G`, `500000K`) resolve to integer megabytes.
-   - Job step records (`.batch`, `.0`) roll up into parent job rows: peak RSS is the maximum over steps; CPU time is the sum of step `TotalCPU` excluding `.extern`.
-   - Heterogeneous job steps (`+0`, `+1`) and array tasks (`_0`, `_1`) evaluate as distinct jobs with `parent_job_id` references.
+   - Raw records stream through Python text/gzip readers into vectorized Polars and PyArrow columns (`source` is `"sacct"` or `"swf"`).
+   - Durations formatted as `D-HH:MM:SS`, `HH:MM:SS`, or `MM:SS.mmm` convert to integer `run_s` and floating `cpu_time_used_s`.
+   - Memory strings (`4000Mc`, `16G`, `500000K`) resolve to cluster-total integer megabytes (`req_mem_mb`); SWF per-processor fields multiply by `alloc_cpus` and divide by `1024`.
+   - Child step records (`.batch`, `.0`, `.extern`) roll up into parent job rows: `max_rss_mb` takes the step maximum, while `cpu_time_used_s` sums `TotalCPU` excluding `.extern` and `.extern*` overhead steps.
+   - Array tasks (`10001_0`) and heterogeneous pack components (`10002+0`) emit distinct canonical rows referencing `parent_job_id`.
 
 2. **Attribution & Partitioning**:
-   - Jobs in active states (`RUNNING`, `PENDING`) are excluded from attribution and tracked in data quality audit counts.
-   - For completed and terminated jobs, `reserved_core_s` (`alloc_cpus * run_s`) and `reserved_mem_mb_s` (`req_mem_mb * run_s`) are partitioned strictly via the precedence cascade:
-     $$\text{Class 3 (Failed)} \to \text{Class 4 (Recompute)} \to \text{Class 2 (Idle CPU) / Class 1 (Over-Requested Memory)} \to \text{Utilized}$$
-   - Any record lacking hardware consumption measurements is marked as `unattributed_missing_cpu_time` or `unattributed_missing_rss`.
-   - Guarantee G1 asserts exact equality without approximation:
+   - Jobs in active states (`RUNNING`, `PENDING`) are removed prior to attribution and summarized in Data Quality exclusion counts.
+   - Zero-duration terminated jobs (`run_s == 0`) remain and are assigned to Class 3 (`early_failure`).
+   - Null `reserved_mem_mb_s` values normalize to `0`, and `reserved_core_s` (`alloc_cpus * run_s`) and `reserved_mem_mb_s` (`req_mem_mb * run_s`) partition via the precedence cascade:
+     $$\text{Class 3 (Failed)} \to \text{Class 4 (Recompute)} \to \text{Class 2 (Idle CPU)} \mathbin{/} \text{Class 1 (Over-Requested Memory)} \to \text{Utilized}$$
+   - Missing `cpu_time_used_s` or `max_rss_mb` on otherwise successful jobs assigns reservations directly to `unattributed_core_s` or `unattributed_mem_mb_s`.
+   - Guarantee G1 asserts exact integer equality:
      $$\text{Reserved} \equiv \text{Utilized} + \text{Waste} + \text{Unattributed}$$
 
-3. **Aggregation & Policy Application**:
-   - Attributed records group by `(user, command_hash_or_job_name)` alongside secondary aggregates (`account`, `partition`).
-   - Groups meeting `min_samples` generate rightsizing recommendations. Groups with fewer samples receive explicit indicators withholding limit changes.
-   - Groups displaying `OUT_OF_MEMORY` events trigger safety escalations (`req_mem_mb = ceil(max_rss * 1.5)`), excluding reclaimable memory from savings sums.
+3. **Aggregation & Guarded Recommendations**:
+   - Attributed rows group by `(user, job_name or command_hash)` alongside secondary rollups (`account`, `partition`, `user`).
+   - Any cohort containing `OUT_OF_MEMORY` terminations bypasses `min_samples`, receives an upward memory escalation (`ceil(max_base * 1.5)` floored at `observed_max_rss`), and contributes `0.0` to `reclaimable_gb_hours`.
+   - Non-OOM cohorts meeting `min_samples` receive `P99 * 1.2` memory limits floored at the all-state historical peak RSS, clamped P99 CPU targets (unless median or all job durations fall below `min_run_s`), and `P99 * 1.5` wallclock recommendations when timeouts occur. Non-OOM cohorts below `min_samples` receive `None` across recommendations.
 
-4. **Counterfactual Simulation**:
-   - The cluster topology is instantiated as $N$ identical compute nodes with fixed core and memory limits.
-   - Jobs are scheduled using an event heap. When queued, the head job reserves a future execution window; subsequent jobs backfill if they do not delay the reservation.
-   - Replay runs across multiple scenarios: `baseline`, `mem_rightsized`, `cpu_rightsized` (fixed and proportional runtimes), `cache_dedup`, and `all`.
-   - Metrics recorded per scenario include queue wait percentiles (p50, p95), makespan, node utilization, and daily completed throughput.
+4. **Counterfactual Simulation & Calibration**:
+   - Nodes initialize from explicit homogeneous/partitioned YAML topology definitions or infer capacity from peak trace allocations (`min 16 nodes, 32 cores/node, 131072 MB/node`).
+   - The discrete-event heap processes completions before arrivals at each second, scheduling the head of FCFS queue `wait_queue` or reserving future capacity for the head and scanning up to 50 queued candidates for non-delaying backfill.
+   - Replay covers `baseline`, `mem_rightsized`, `cpu_rightsized_none`, `cpu_rightsized_proportional`, `cache_dedup`, and `all`. Calibration measures baseline simulated wait against historical `wait_s`.
 
 ---
 
-## 6. Execution Constraints and Performance Targets
+## 6. Execution Environment and Scope Boundaries
 
-- **Technology Stack**: Python 3.11+, Polars, PyArrow, NumPy, Pydantic v2, Typer, PyYAML.
-- **Process Model**: Single-process tabular execution with vectorized operations in Polars and PyArrow.
-- **Offline Hermetic Operation**: Unit and property test suites execute completely without external network dependencies. Trace downloads occur only via explicit invocation of `make data`.
-- **Target Performance**: 1,000,000 canonical jobs pass through `baseline` simulation in under 15 minutes on a workstation. Ingestion throughput exceeds 30,000 jobs/second for Slurm `sacct` text parsing.
+- **Technology Stack**: Python `3.11+` (`>=3.11` runtime, Python `3.12` static analysis target), Polars `1.14.0`, PyArrow `18.1.0`, NumPy `2.1.3`, Pydantic `2.10.3`, Typer `0.15.1`, PyYAML `6.0.2`.
+- **Automation Harness (`Makefile`)**: 13 standard targets (`all`, `setup`, `lint`, `typecheck`, `test`, `data`, `synth`, `run`, `calibrate`, `bench`, `bench-smoke`, `goldens`, `docker`).
+- **Process & Storage Model**: Single-process execution with zero external worker daemons, relational servers, or telemetry clients. Downloaded public traces remain isolated in gitignored `data/raw/`.
+- **Explicit Scope Limits**:
+  - Offline analysis only (no live Slurm plugins or SPANK hooks).
+  - Canonical schema tracks `req_gpus` and `alloc_gpus` from TRES fields without GPU utilization attribution.
+  - Discrete-event simulator omits network/switch topology, job preemption, fair-share decay, and dependency DAG constraints.
+- **Measured Single-Process Throughput**: `34,610.4` jobs/s Slurm `sacct` ingestion, `90,618.1` jobs/s SWF fixture ingestion, and `90,486.8` jobs/s baseline simulation at `310.77 MB` peak RSS on `20k` synthetic records ([`bench/results/bench.md`](../bench/results/bench.md)).

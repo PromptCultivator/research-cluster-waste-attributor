@@ -4,15 +4,15 @@
 Accepted
 
 ## Context
-Operators cannot safely apply recommendation policies without understanding their downstream impact on queue wait times, job throughput, and cluster makespan. Schedulers in production clusters employ complex priority weighting and backfill heuristics.
+Rightsizing allocations alters packing density and queue wait times non-linearly across mixed job sizes. Operators need an auditable counterfactual replay that measures queue impact and discloses fidelity error against historical scheduler waits.
 
 ## Options
-1. **Deterministic FCFS with EASY Backfill**: Implement an event-driven FCFS scheduler with single-reservation EASY backfill on homogeneous nodes, with calibration against historical trace wait times.
-2. **Production Scheduler Fork/Emulation**: Run an actual Slurm controller daemon in emulation mode with full multi-factor priority plugins.
-3. **Queueing Theory Analytical Model**: Estimate wait time changes using theoretical M/M/c or G/G/c queueing formulas.
+1. **Deterministic Event-Driven FCFS with EASY Backfill**: Implement a self-contained heap-driven scheduler simulator supporting homogeneous or partitioned YAML cluster configurations, automatic trace-peak cluster inference, single shadow reservation, bounded backfill lookahead, six replay scenarios, and historical calibration.
+2. **Slurm Emulator Fork / Daemon Execution**: Spawn modified `slurmctld` daemons in simulation mode with site plugin configurations.
+3. **Analytical Queueing Approximations**: Approximate wait shifts with closed-form `M/M/c` or `G/G/c` equations.
 
 ## Decision
-Adopt Option 1: Deterministic FCFS with EASY Backfill. The simulator provides a fully reproducible and testable execution model. It guarantees that jobs never start before submit time and never exceed node capacities (G4). It runs calibration against historical trace wait times, publishing the median absolute error and Spearman correlation alongside scenario projections to bound expected prediction accuracy.
+Adopt Option 1: Deterministic Event-Driven FCFS with EASY Backfill (implemented in [`rcwa/simulate.py`](../../rcwa/simulate.py) and [`rcwa/calibrate.py`](../../rcwa/calibrate.py)). At each simulation timestamp, completions free node resources before arrivals enqueue ordered by `(submit_time, job_id)`. When the queue head cannot start immediately, `compute_head_reservation` projects a future shadow reservation and scans up to `50` queued candidates (`max_test = 50`) for backfill whenever a candidate fits within `(current_time + expected_walltime <= res_time)` or targets nodes disjoint from the reserved node set. Every job schedules once, satisfies `sim_start >= submit_time`, and respects per-node capacity bounds (Guarantee G4). Calibration compares `baseline` simulated wait times against recorded `wait_s` using Median Absolute Error and Spearman rank correlation.
 
 ## Measured or Expected Cost
-Network topology, job preemption, fair-share decay, and GPU allocation dynamics are omitted from the simulation model. Calibration error defines the verifiable confidence envelope for all reported scenario deltas.
+Switch/rack network topology, job preemption, fair-share priority decay, dependency holds, and GPU device scheduling are excluded from the simulator model. Published calibration error explicitly scopes the accuracy envelope of counterfactual wait-time deltas across all six scenarios (`baseline`, `mem_rightsized`, `cpu_rightsized_none`, `cpu_rightsized_proportional`, `cache_dedup`, `all`).

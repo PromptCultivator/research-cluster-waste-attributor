@@ -1,16 +1,16 @@
 # Public Workload Data Traces
 
-This repository uses public workload accounting traces from the Parallel Workloads Archive maintained by the Hebrew University of Jerusalem.
+This repository evaluates real-world trace parsing, attribution, and baseline simulator calibration against public batch-scheduler traces archived in the Parallel Workloads Archive (Hebrew University of Jerusalem).
 
 ---
 
-## 1. CEA-Curie Trace (CEA-Curie-2011-2.swf.gz)
+## 1. CEA-Curie Trace (`CEA-Curie-2011-2.swf.gz`)
 
-- **Source URL**: `https://www.cs.huji.ac.il/labs/parallel/workload/l_cea_curie/index.html`
+- **Source Page**: `https://www.cs.huji.ac.il/labs/parallel/workload/l_cea_curie/index.html`
 - **Download URL**: `https://www.cs.huji.ac.il/labs/parallel/workload/l_cea_curie/CEA-Curie-2011-2.swf.gz`
 - **System**: Curie cluster operated by CEA (Commissariat à l'énergie atomique et aux énergies alternatives) for GENCI.
-- **Architecture**: Bullx B510 cluster comprising 5,544 nodes and 93,312 compute cores.
-- **Trace Duration**: 20 months (February 2011 to October 2012).
+- **Architecture**: Bullx B510 cluster comprising 5,544 compute nodes and 93,312 compute cores.
+- **Trace Span**: 20 months (February 2011 to October 2012).
 - **Header Pragmas**:
   - `Version`: `2.2`
   - `Computer`: `Bullx B510`
@@ -25,17 +25,17 @@ This repository uses public workload accounting traces from the Parallel Workloa
   - `MaxNodes`: `5544`
   - `MaxProcs`: `93312`
   - `Note`: `Scheduler is Slurm (https://computing.llnl.gov/linux/slurm/)`
-- **Usage Terms**: Traces from the Parallel Workloads Archive are freely accessible for academic, scientific, and comparative scheduling research. Publications and derivatives should cite the archive and the original trace contributors.
+- **Usage Terms**: Traces from the Parallel Workloads Archive are freely usable for academic, scientific, and comparative scheduling research; publications and derivative studies should cite the archive and original trace contributors.
 
 ---
 
-## 2. SDSC SP2 Trace (SDSC-SP2-1998-4.2-cln.swf.gz)
+## 2. SDSC SP2 Trace (`SDSC-SP2-1998-4.2-cln.swf.gz`)
 
-- **Source URL**: `https://www.cs.huji.ac.il/labs/parallel/workload/l_sdsc_sp2/index.html`
+- **Source Page**: `https://www.cs.huji.ac.il/labs/parallel/workload/l_sdsc_sp2/index.html`
 - **Download URL**: `https://www.cs.huji.ac.il/labs/parallel/workload/l_sdsc_sp2/SDSC-SP2-1998-4.2-cln.swf.gz`
 - **System**: IBM SP2 supercomputer at the San Diego Supercomputer Center (SDSC).
-- **Architecture**: 128 compute nodes with dedicated memory per processor.
-- **Trace Duration**: 24 months (April 1998 to April 2000).
+- **Architecture**: 128 compute nodes.
+- **Trace Span**: 24 months (April 1998 to April 2000).
 - **Header Pragmas**:
   - `Version`: `2.2`
   - `Computer`: `IBM SP2`
@@ -50,12 +50,12 @@ This repository uses public workload accounting traces from the Parallel Workloa
   - `MaxNodes`: `128`
   - `MaxProcs`: `128`
   - `Note`: `THIS IS A CLEANED VERSION OF THE LOG!`
-- **Usage Terms**: Freely accessible for research and evaluation purposes with attribution to the San Diego Supercomputer Center and the Parallel Workloads Archive.
+- **Usage Terms**: Freely available for research and benchmarking with attribution to the San Diego Supercomputer Center and the Parallel Workloads Archive.
 
 ---
 
-## 3. Data Storage Rules
+## 3. Data Storage and Offline Testing Policy
 
-- Large downloaded files (`*.swf`, `*.swf.gz`, `*.parquet`) reside in `data/raw/` and are excluded by `data/.gitignore`.
-- Tests never access external networks during execution.
-- Committed synthetic fixtures in `tests/fixtures/` represent miniature traces used exclusively for unit and integration testing.
+- `make data` executes [`scripts/download_data.py`](../scripts/download_data.py) to fetch both compressed SWF archives into `data/raw/`.
+- Downloaded files (`*.swf`, `*.swf.gz`, `*.sacct`, `*.parquet`) live inside `data/` and are ignored by [`data/.gitignore`](../data/.gitignore).
+- Automated unit, property, golden, and E2E test suites execute completely offline using the 40 synthetic fixtures committed under [`tests/fixtures/`](../tests/fixtures/) (see [`docs/TESTING.md`](TESTING.md)).

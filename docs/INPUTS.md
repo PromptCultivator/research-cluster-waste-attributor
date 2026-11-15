@@ -1,25 +1,24 @@
-# System Input Acquisition Guide
+# System Input Acquisition and Configuration Guide
 
-This guide details how to obtain, generate, and configure inputs for `research-cluster-waste-attributor` (`rcwa`).
+This guide explains how to export production Slurm traces, download public supercomputer workloads, generate synthetic traces, track declared input checksums with `rcwa-wrap`, and write cluster/policy YAML files.
 
 ---
 
-## 1. Supported Input Formats
+## 1. Supported Input Sources
 
-`rcwa` ingests batch accounting traces from four primary sources:
-
-1. **Slurm Accounting Logs (`sacct`)**: Production job records exported directly from Slurm database clusters.
-2. **Standard Workload Format (SWF)**: Standard supercomputer traces from the Parallel Workloads Archive.
-3. **Synthetic Traces (`rcwa synth`)**: Deterministic generated traces with planted ground-truth waste categories for testing and validation.
-4. **Declared Input Hashes (`rcwa-wrap`)**: Runtime checksum metadata used to detect redundant workflow executions.
+`research-cluster-waste-attributor` (`rcwa`) consumes:
+1. **Slurm Accounting Logs (`sacct`)**: Pipe-delimited exports from Slurm `sacct`.
+2. **Standard Workload Format (`SWF`)**: Plaintext `.swf` or gzip-compressed `.swf.gz` supercomputer workload logs.
+3. **Canonical Parquet (`canonical.parquet`)**: Pre-ingested 27-field Apache Arrow/Parquet job tables.
+4. **Sidecar Hash Metadata (`$RCWA_DIR/*.json`) & Comments**: Declared input checksums recorded by `rcwa-wrap`.
 
 ---
 
 ## 2. Production Slurm Export (`sacct`)
 
-### 2.1 The Standard Export Command
+### 2.1 Standard Export Command
 
-To extract accounting records from a production Slurm cluster, use the `sacct` utility with pipe-delimited output (`-P`), all-users query (`-a`), and megabyte units (`--units=M`):
+Export accounting records with pipe delimiters (`-P`), all users (`-a`), and megabyte memory units (`--units=M`):
 
 ```bash
 sacct -a -P --units=M \
@@ -30,90 +29,72 @@ ReqCPUS,AllocCPUS,ReqMem,MaxRSS,AveRSS,TotalCPU,CPUTimeRAW,ReqTRES,AllocTRES,Nod
   > cluster_trace.sacct
 ```
 
-### 2.2 Mandatory Column Reference
+### 2.2 Slurm Field Reference (26 Fields)
 
-The ingestion parser requires exactly these 26 fields in the header:
+Header order may vary (`parse_sacct` indexes fields dynamically by header name). Unknown extra columns emit a `UserWarning` and are skipped.
 
-| Field Name | Type | Description |
-|---|---|---|
-| `JobIDRaw` | String | Raw integer job identifier without step extensions. |
-| `JobID` | String | Job identifier including step suffixes (`12345`, `12345.batch`, `12345_0`). |
-| `User` | String | User name of the job submitter. |
-| `Account` | String | Slurm billing account or group project. |
-| `Partition` | String | Slurm partition/queue name. |
-| `QOS` | String | Quality of service assigned to the job. |
-| `JobName` | String | User-specified job title or script name. |
-| `Submit` | Timestamp | Timestamp when the job was submitted to the queue. |
-| `Eligible` | Timestamp | Timestamp when the job became eligible for scheduling. |
-| `Start` | Timestamp | Timestamp when execution started on compute nodes. |
-| `End` | Timestamp | Timestamp when execution terminated. |
-| `Elapsed` | Duration | Elapsed wallclock run time (`D-HH:MM:SS`, `HH:MM:SS`, or `MM:SS`). |
-| `State` | String | Job termination state (e.g., `COMPLETED`, `FAILED`, `OUT_OF_MEMORY`). |
-| `ExitCode` | String | Return code format (`return_code:signal`). |
-| `ReqCPUS` | Integer | Requested CPU core count. |
-| `AllocCPUS` | Integer | Allocated CPU core count. |
-| `ReqMem` | String | Requested memory with unit suffix (e.g., `8000M`, `4G`, `2000Mc`). |
-| `MaxRSS` | String | Maximum resident set size observed across execution steps. |
-| `AveRSS` | String | Average resident set size observed across execution steps. |
-| `TotalCPU` | Duration | Accumulated CPU execution time across all cores. |
-| `CPUTimeRAW` | Integer | Total allocated CPU time in seconds (`AllocCPUS * Elapsed`). |
-| `ReqTRES` | String | Trackable resource request strings (CPU, memory, node, GPU counts). |
-| `AllocTRES` | String | Allocated trackable resource strings. |
-| `NodeList` | String | List of assigned compute node hostnames. |
-| `Comment` | String | Slurm job comment field containing input hashes or user notes. |
-| `SubmitLine` | String | Original submission command line or script path. |
+| Field Name | Description |
+|---|---|
+| `JobIDRaw` | Raw numeric scheduler job identifier. |
+| `JobID` | Full identifier including step (`.batch`, `.0`, `.extern`), array (`_0`), or pack (`+0`) suffixes. |
+| `User` | Submitter username. |
+| `Account` | Billing account or research group. |
+| `Partition` | Target Slurm partition/queue. |
+| `QOS` | Quality of service string. |
+| `JobName` | User-assigned job name. |
+| `Submit` | Job submission timestamp (`YYYY-MM-DDTHH:MM:SS` or epoch). |
+| `Eligible` | Scheduling eligibility timestamp. |
+| `Start` | Execution start timestamp (`Unknown` or blank if never started). |
+| `End` | Execution termination timestamp. |
+| `Elapsed` | Wallclock run duration (`D-HH:MM:SS`, `HH:MM:SS`, `MM:SS`, or seconds). |
+| `State` | Terminal or active Slurm state (e.g., `COMPLETED`, `FAILED`, `OUT_OF_MEMORY`, `CANCELLED by 1001`). |
+| `ExitCode` | Exit code pair (`code:signal`). |
+| `ReqCPUS` | Requested processor core count. |
+| `AllocCPUS` | Allocated processor core count. |
+| `ReqMem` | Memory request with optional unit (`K`/`M`/`G`/`T`/`P`) and scope suffix (`c` per CPU, `n` per node). |
+| `MaxRSS` | Peak resident set size observed during execution. |
+| `AveRSS` | Average resident set size observed across tasks/steps. |
+| `TotalCPU` | Accumulated CPU time consumed across allocated cores. |
+| `CPUTimeRAW` | Reserved CPU core-seconds (`AllocCPUS * Elapsed`). |
+| `ReqTRES` | Requested trackable resources string (CPU, mem, node, `gres/gpu`, etc.). |
+| `AllocTRES` | Allocated trackable resources string. |
+| `NodeList` | Assigned compute node list or host range. |
+| `Comment` | Slurm comment metadata (`RCWA_INPUT_HASH=<hex>` when captured via `rcwa-wrap`). |
+| `SubmitLine` | Submitted command string used for `command_hash` derivation when absent from sidecars. |
 
-### 2.3 Step Hierarchy and Array Jobs
+### 2.3 Step Aggregation, Array Tasks, and Export Tips
 
-- **Step Rollup**: Slurm records resource limits on the parent record (`12345`), while memory (`MaxRSS`) and CPU consumption (`TotalCPU`) appear on step records (`12345.batch`, `12345.0`). The `rcwa` parser automatically aggregates child step metrics into the parent allocation record, excluding PAM/cgroup setup overhead from `.extern` steps.
-- **Array Jobs**: Array tasks (e.g., `12345_0`, `12345_1`) and heterogeneous pack jobs (`12345+0`) are decomposed into independent job records while preserving `parent_job_id`.
-
-### 2.4 Practical Export Recommendations
-
-- **Date Chunking**: For large clusters with millions of historical jobs, run `sacct` queries in 1-month or 1-week intervals to avoid database gateway timeouts:
-  ```bash
-  sacct -a -P --units=M -S 2026-01-01 -E 2026-01-08 --format=... > week1.sacct
-  ```
-- **Partition Filtering**: Focus on specific compute partitions by adding the `-r` option:
-  ```bash
-  sacct -a -P --units=M -r compute,gpu -S 2026-01-01 -E 2026-02-01 --format=... > gpu_partition.sacct
-  ```
+- **Step Rollup**: Memory (`MaxRSS`) takes the maximum across child steps (`12345.batch`, `12345.0`), and `TotalCPU` sums across child steps while excluding `.extern*` system overhead steps. Parent counters serve as fallback when step rows lack metrics.
+- **Array & Pack Jobs**: Array elements (`12345_0`, `12345_1`) and heterogeneous pack components (`10002+0`) materialize as distinct canonical rows with `parent_job_id` populated.
+- **Time-Window Chunking & Partition Filtering**: For multi-million-job clusters, split exports into weekly windows or filter with `-r compute,gpu` to keep `slurmdbd` queries bounded.
 
 ---
 
-## 3. Public Supercomputer Traces (SWF)
+## 3. Public Supercomputer Traces (`SWF`)
 
-For testing and comparative research without a live Slurm deployment, the repository provides automated downloads for public traces from the Parallel Workloads Archive.
-
-### 3.1 Automated Download
-
-Execute the project download script:
+Retrieve reference traces from the Parallel Workloads Archive into `data/raw/`:
 
 ```bash
 make data
-# Or directly via Python:
+# Equivalent:
 python3 scripts/download_data.py
 ```
 
-This retrieves the following reference traces into `data/raw/`:
-- **CEA-Curie** (`data/raw/CEA-Curie-2011-2.swf.gz`): Bullx cluster log with 93,312 compute cores across 5,544 nodes (773,138 job records).
-- **SDSC-SP2** (`data/raw/SDSC-SP2-1998-4.2-cln.swf.gz`): IBM SP2 supercomputer log with 128 nodes (73,496 job records).
+Downloaded archives (excluded from git via `data/.gitignore`):
+- `data/raw/SDSC-SP2-1998-4.2-cln.swf.gz`: 73,496 jobs across 128 nodes.
+- `data/raw/CEA-Curie-2011-2.swf.gz`: 773,138 jobs across 5,544 nodes / 93,312 cores.
 
-### 3.2 Direct SWF Ingestion
-
-`rcwa` parses both uncompressed (`.swf`) and gzip-compressed (`.swf.gz`) trace files directly:
+`parse_swf` reads `.swf` and `.swf.gz` files directly via `rcwa ingest`, `rcwa report`, or `rcwa run`:
 
 ```bash
-rcwa ingest data/raw/CEA-Curie-2011-2.swf.gz --output data/out/curie.parquet
+rcwa ingest data/raw/SDSC-SP2-1998-4.2-cln.swf.gz --output data/out/sdsc.parquet
 ```
 
 ---
 
 ## 4. Synthetic Trace Generation (`rcwa synth`)
 
-When benchmarking algorithms or running unit tests with known ground truth, generate synthetic traces using `rcwa synth`.
-
-### 4.1 CLI Command
+Generate reproducible `sacct` traces alongside `.truth.parquet` planted-waste labels:
 
 ```bash
 rcwa synth \
@@ -121,36 +102,25 @@ rcwa synth \
   --seed 42 \
   --faults default \
   --output data/raw/synthetic_20k.sacct \
-  --ground-truth data/raw/synthetic_truth.parquet
-```
+  --ground-truth data/raw/synthetic_20k.truth.parquet
 
-### 4.2 Makefile Shortcut
-
-```bash
+# Makefile shortcut (writes data/raw/synthetic_<size>_seed<seed>.sacct and .truth.parquet):
 make synth SIZE=20k SEED=1
 ```
 
-Supported size presets include `20k`, `100k`, and `1M`.
-
-### 4.3 Planted Waste Classes
-
-The synthetic generator injects calibrated amounts of each waste category:
-- **Class 1 (Memory Over-Request)**: Jobs with requested memory exceeding measured peak RSS.
-- **Class 2 (Idle Allocated CPU)**: Multi-threaded allocations with single-threaded execution.
-- **Class 3 (Failed/Retried Work)**: Jobs marked `FAILED`, `TIMEOUT`, or `OUT_OF_MEMORY` with linked resubmissions.
-- **Class 4 (Redundant Recomputation)**: Repeated jobs executing identical commands on identical declared input files.
-
-The accompanying ground-truth Parquet file enables exact calculation of recall and precision metrics.
+Options:
+- `--size`: Integer count or suffix preset (`20k`, `100k`, `1M`).
+- `--faults`: `default` (realistic planted classes 1–4 + retries), `all_waste` (elevated fault ratios), or `no_waste` (high efficiency baseline).
 
 ---
 
 ## 5. Declared Input Tracking (`rcwa-wrap`)
 
-Class 4 waste detection attributes compute capacity spent re-executing completed workloads on unchanged data. To capture these relationships, wrap command invocations at submission time.
+Wrap Slurm batch commands so Class 4 redundant recomputation is backed by verified input digests rather than heuristic guesses.
 
-### 5.1 Using `rcwa-wrap` in Slurm Job Scripts
+### 5.1 Usage in Batch Scripts
 
-Add `rcwa-wrap` to your `sbatch` batch submission script:
+Pass `--inputs` as a comma-separated list of file paths before `--` and the target command:
 
 ```bash
 #!/bin/bash
@@ -158,64 +128,98 @@ Add `rcwa-wrap` to your `sbatch` batch submission script:
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 
-# Execute workload via the wrapper
+export RCWA_DIR=/shared/rcwa/sidecars
+
 rcwa-wrap \
-  --input data/source_records.parquet \
-  --input configs/pipeline_config.yaml \
+  --inputs data/source_records.parquet,configs/pipeline_config.yaml \
   --big-file-mode size_mtime \
+  --big-file-threshold 104857600 \
   -- python transform.py --mode full --output data/processed.parquet
 ```
 
-### 5.2 How Hashes Are Stored
+Key flags:
+- `--inputs`: Comma-separated list of declared input file paths.
+- `--big-file-mode`: `size_mtime` (default) or `sha256`. Under `size_mtime`, files larger than `--big-file-threshold` (default `104857600` bytes / 100 MB) compute `sha256("<basename>:<bytes>:<int_mtime>")` instead of reading every byte.
+- `--regex-strip`: Optional regular expression stripped from command tokens (e.g., temporary scratch directories) before computing `command_hash`.
+- Unresolved paths mark `"missing"` in checksum records without interrupting execution; exit codes propagate directly from the child process (`127` when executable is missing, `126` on permission error).
 
-`rcwa-wrap` calculates a deterministic checksum combining input files and normalized command flags, then records it via two mechanisms:
-1. **Slurm Comment Update**: Executes `scontrol update JobId=$SLURM_JOB_ID Comment=RCWA_INPUT_HASH=<hex>`. When `sacct` exports the `Comment` column, the hash is ingested directly.
-2. **Local Sidecar File**: Writes a JSON metadata document to `$RCWA_DIR/<job_id>.json` (default: `~/.rcwa/sidecars/<job_id>.json`) for environments where `scontrol update` is restricted.
+### 5.2 Persistence Mechanisms
+
+1. **Slurm Job Comment**: When `$SLURM_JOB_ID` is defined, executes `scontrol update JobId=$SLURM_JOB_ID Comment=RCWA_INPUT_HASH=<hex>` (non-blocking if `scontrol` is unavailable).
+2. **Sidecar JSON File**: When `$RCWA_DIR` is set, writes `$RCWA_DIR/<job_id>.json` (using `unknown.json` when `$SLURM_JOB_ID` is unset) containing `job_id`, `input_hash`, `command_hash`, and `inputs` statuses. Both `parse_sacct` (automatically when `RCWA_DIR` is set) and `merge_sidecars(df, sidecar_dir=...)` merge these digests into canonical rows.
 
 ---
 
-## 6. Configuration Inputs
-
-`rcwa` relies on two configuration files to guide simulation and rightsizing.
+## 6. Cluster and Policy YAML Configurations
 
 ### 6.1 Cluster Topology (`clusters/*.yaml`)
 
-Specifies hardware capacities for the queue simulator:
+Supports homogeneous definitions (`clusters/example.yaml`, `tests/fixtures/clusters/homogeneous_cluster.yaml`) or multi-partition definitions (`tests/fixtures/clusters/heterogeneous_cluster.yaml`):
 
 ```yaml
-# clusters/example.yaml
-name: "research_cluster"
-nodes: 64
-cpus_per_node: 32
+# Homogeneous cluster (clusters/example.yaml)
+cluster_name: "example"
+node_count: 64
+cores_per_node: 32
 mem_mb_per_node: 131072
-default_walltime_s: 86400
-backfill_policy: "easy"
+core_to_mem_ratio: 0.25
+nodes:
+  prefix: "node"
+  pad_width: 3
 ```
 
-### 6.2 Policy Configuration (`policies/*.yaml`)
+```yaml
+# Partitioned cluster (tests/fixtures/clusters/heterogeneous_cluster.yaml)
+name: heterogeneous_cluster
+partitions:
+  compute:
+    nodes: 32
+    cores_per_node: 64
+    mem_mb_per_node: 262144
+  fatmem:
+    nodes: 8
+    cores_per_node: 64
+    mem_mb_per_node: 1048576
+  gpu:
+    nodes: 16
+    cores_per_node: 64
+    mem_mb_per_node: 524288
+    gpus_per_node: 4
+```
 
-Configures safety guardrails and percentile targets:
+When `--cluster` is omitted in CLI/Python simulation calls, `infer_cluster_from_trace` synthesizes a homogeneous cluster from peak job allocations (`16` nodes, `cores_per_node >= 32`, `mem_mb_per_node >= 131072`).
+
+### 6.2 Attribution and Rightsizing Policy (`policies/default.yaml`)
 
 ```yaml
-# policies/default.yaml
 grouping:
-  primary_keys: ["user", "command_hash"]
-  fallback_key: "job_name"
-  secondary_rollups: ["account", "partition"]
+  group_keys:
+    - "user"
+    - "command_hash_or_job_name"
+  secondary_rollups:
+    - "account"
+    - "partition"
+    - "user"
   min_samples: 5
 
-rightsizing:
-  memory:
-    percentile: 99
-    safety_multiplier: 1.2
-    floor_at_historical_max: true
-    oom_escalation_multiplier: 1.5
-  cpu:
-    percentile: 99
-    safety_multiplier: 1.2
-    short_job_threshold_s: 120
+attribution:
+  retry_window_s: 86400                  # 24 hours
+  recompute_window_s: 2592000            # 30 days
+  early_failure_threshold_s: 60
+  mem_weight_core_hours_per_gb_hour: 0.25
 
-recompute:
-  window_hours: 168
-  cache_simulation: true
+recommendations:
+  memory:
+    percentile: 0.99
+    safety_factor: 1.2
+    oom_multiplier: 1.5
+  cpu:
+    percentile: 0.99
+    safety_factor: 1.2
+    min_run_s: 120
+  timeout:
+    percentile: 0.99
+    multiplier: 1.5
+  recompute:
+    cache_threshold_waste_share: 0.05
 ```

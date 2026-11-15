@@ -241,6 +241,6 @@ def validators() -> InvariantValidators:
 
 @pytest.fixture
 def require_rcwa():
-    """Skip test gracefully if rcwa functional pipeline is pending implementation."""
+    """Skip test gracefully if rcwa functional modules are unavailable."""
     if not is_rcwa_functional():
-        pytest.skip("rcwa functional pipeline is pending implementation in Phase 1+")
+        pytest.skip("rcwa functional pipeline modules are unavailable")

@@ -1,82 +1,66 @@
-# Test Readiness Declaration
+# Test Suite Readiness and Verification Summary
 
-## 1. Readiness Summary
+## 1. Suite Inventory
 
-The end-to-end (E2E) opaque-box test suite for `research-cluster-waste-attributor` is established and verified. The test harness discovers and parameterizes all feature scenarios without collection errors.
+The `research-cluster-waste-attributor` verification suite spans unit tests, Hypothesis property tests, golden report comparisons, and an opaque-box CLI end-to-end (E2E) suite backed by offline fixtures.
 
-- **Test Suite Status**: READY FOR CONTINUOUS VERIFICATION
-- **Total E2E Test Invocations Collected**: 608
-- **Required Minimum Threshold**: 563 (calculated as $11 \times N + \max(5, \lfloor N/2 \rfloor) = 11 \times 49 + 24 = 563$ for $N=49$ features)
-- **Margin Over Threshold**: +45 tests (+8.0%)
-- **Syntax and Discovery Errors**: 0
+| Suite | Scope | Modules | Collected Cases | Network Required |
+|---|---|---|---|---|
+| Unit (`tests/unit/`) | Normalization, adapters, attribution, G1, retries, grouping, recomputation, recommendations, simulator, calibration, reporting, synthetic generator, scaffold, vocabulary gate | 21 | 389 (combined standard suite) | No |
+| Property (`tests/property/`) | Guarantee G2 across 10,000 Hypothesis-generated job cohorts | 1 | Included in 389 above | No |
+| Golden (`tests/golden/`) | Guarantee G3 byte-determinism and exact regression against 6 committed Slurm/SWF golden fixtures | 2 | Included in 389 above | No |
+| E2E Tier 1 (`tests/e2e/tier1_feature_coverage/`) | Opaque-box CLI feature coverage (`sacct`, `swf`, attribution, guardrails, `rcwa-wrap`, simulator, reporting) | 7 | 341 | No |
+| E2E Tier 2 (`tests/e2e/tier2_boundary_corner/`) | Boundary, truncated, binary, extreme, missing-metric, and CLI error conditions | 6 | 92 | No |
+| E2E Tier 3 (`tests/e2e/tier3_cross_feature/`) | Cross-feature integrations (`INT-01` through `INT-08`) | 8 | 38 | No |
+| E2E Tier 4 (`tests/e2e/tier4_real_world/`) | Multi-day cluster traces, degraded inputs, and G1–G4 suites | 7 | 139 | No |
+| **Total E2E** | Complete opaque-box CLI suite (`tests/e2e/`) | **28** | **610** | **No** |
+| **Total Fixtures** | Committed test datasets (`tests/fixtures/`) | **10 dirs** | **40 files** | **No** |
 
 ---
 
-## 2. Test Execution Instructions
+## 2. Running the Suites
 
-### Complete Test Discovery
-To verify successful discovery across all tiers without execution overhead:
+### Standard CI Verification (`>= 85%` Branch & Line Coverage Gate)
+
+The default [`pyproject.toml`](pyproject.toml) configuration executes `tests/unit/`, `tests/property/`, and `tests/golden/` while enforcing `cov-fail-under=85`:
+
 ```bash
-pytest tests/e2e/ -o addopts="" --collect-only
+make test
+# Equivalent:
+python -m pytest
 ```
 
-### Targeted Tier Execution
-To execute specific testing tiers during phase delivery:
+### E2E Opaque-Box Suite (`tests/e2e/`)
+
+Override default `addopts` when invoking `tests/e2e/` directly because E2E subprocess invocations run in external child processes:
+
 ```bash
-# Tier 1: Feature Coverage (F4 - F44)
+# Discover all E2E test cases without executing
+pytest tests/e2e/ -o addopts="" --collect-only
+
+# Execute full E2E suite
+pytest tests/e2e/ -o addopts=""
+
+# Execute individual tiers
 pytest tests/e2e/tier1_feature_coverage/ -o addopts=""
-
-# Tier 2: Boundary and Corner Cases
 pytest tests/e2e/tier2_boundary_corner/ -o addopts=""
-
-# Tier 3: Cross-Feature Combinations (INT-01 through INT-08)
 pytest tests/e2e/tier3_cross_feature/ -o addopts=""
-
-# Tier 4: Real-World Workflows and Guarantees (G1 - G4)
 pytest tests/e2e/tier4_real_world/ -o addopts=""
 ```
 
-### Subprocess CLI Mode
-The CLI invoker fixture spawns subprocess calls using Python:
+### Static Quality & Smoke Gates
+
 ```bash
-python -m rcwa.cli --help
-python -m rcwa.wrap --help
+make lint         # ruff check . && ruff format --check .
+make typecheck    # pyright
+make bench-smoke  # 20k synthetic trace end-to-end invariant check (G1 exact, 0 G2 violations)
 ```
 
 ---
 
-## 3. Milestone Pass Progression Matrix
+## 3. Compliance Audits
 
-The test suite exercises opaque-box system properties as features land across delivery phases:
+- **Zero-Network Hermetic Execution**: All unit, property, golden, and E2E suites operate exclusively on committed files under [`tests/fixtures/`](tests/fixtures/) and deterministic synthetic data generated at test runtime.
+- **Prohibited Vocabulary Check**: [`tests/unit/test_forbidden_words.py`](tests/unit/test_forbidden_words.py) scans all source, configuration, test, and Markdown documentation files (including `README.md`, `PROJECT.md`, `TEST_READY.md`, and `docs/`) to ensure zero occurrences of the nine excluded terms.
 
-| Milestone | Target Scope | Associated Test Suites | Expected Test Status |
-|---|---|---|---|
-| **M0** | Scaffold & Toolchain | `test_cli_argument_boundaries.py` (help checks) | PASS CLI help tests; pending modules skipped |
-| **M1** | Ingest & Canonical Record | `test_f04_f09_sacct_ingest.py`, `test_f10_f14_swf_canonical.py`, `test_empty_and_truncated_inputs.py`, `test_corrupted_and_extreme_values.py` | PASS 180+ ingest and parsing tests |
-| **M2** | Waste Attribution & G1 | `test_f15_f21_attribution_g1.py`, `test_guarantee_g1_conservation_suite.py` | PASS exact conservation G1 checks across all fixtures |
-| **M3** | Rightsizing & G2 Safety | `test_f22_f28_reclaim_recommendations_g2.py`, `test_guarantee_g2_safety_suite.py`, `test_boundary_sample_groups.py` | PASS 100+ rightsizing and guardrail tests |
-| **M4** | Recomputation & Wrap | `test_f29_f34_wrap_recompute.py`, `test_wrap_tolerance_boundaries.py`, `test_int02_wrap_sidecar_class4.py` | PASS 50+ hashing and Class 4 attribution tests |
-| **M5** | Simulator & Calibration | `test_f35_f40_simulator_calibration_g4.py`, `test_int05_easy_backfill_scenarios.py`, `test_int06_calibration_spearman_mae.py`, `test_guarantee_g4_simulation_validity_suite.py` | PASS 75+ EASY-backfill and G4 validity tests |
-| **M6** | Reports & Determinism G3 | `test_f41_f44_reports_determinism_g3.py`, `test_guarantee_g3_determinism_suite.py`, `test_int07_full_pipeline_determinism.py` | PASS 50+ multi-format and G3 determinism tests |
-| **M7** | End-to-End Traces | `test_cli_workflow_e2e.py`, `test_multiday_cluster_workload.py`, `test_degraded_data_resilience.py` | PASS 100% of all 608 test cases |
-
----
-
-## 4. Test Count Accounting
-
-| Tier / Directory | Primary Purpose | Test Modules | Test Count |
-|---|---|---|---|
-| **Tier 1** | Feature Coverage (F4 - F44) | 7 modules | 341 |
-| **Tier 2** | Boundary & Corner Cases | 6 modules | 90 |
-| **Tier 3** | Cross-Feature Integrations (INT-01 to INT-08) | 8 modules | 38 |
-| **Tier 4** | Real-World Traces & Guarantees (G1 - G4) | 7 modules | 139 |
-| **Total** | Complete E2E Test Suite | 28 modules | **608** |
-
----
-
-## 5. Prohibited Vocabulary Compliance Attestation
-
-In accordance with specification guidelines, all test files, test fixtures, documentation records, docstrings, and comments were audited using automated regex validation:
-- Checked prohibited terms: 9 prohibited words defined in specification Section 13.
-- Target files examined: All files under `tests/fixtures/`, `tests/e2e/`, `TEST_INFRA.md`, and `TEST_READY.md`.
-- Result: **0 instances detected**.
+For detailed harness fixtures, mathematical verification formulas, and the complete 40-file fixture catalog, see [`docs/TESTING.md`](docs/TESTING.md).

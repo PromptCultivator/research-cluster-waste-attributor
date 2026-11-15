@@ -1,274 +1,147 @@
-# Build prompt: `research-cluster-waste-attributor`
+# System Specification: `research-cluster-waste-attributor`
 
-How to use this file: save it as `docs/SPEC.md` in an empty repository.
-Everything below specifies the system requirements, architecture, and design constraints.
+## 1. Purpose and Scope
+
+`research-cluster-waste-attributor` (`rcwa`) reads batch-scheduler accounting traces from compute clusters, partitions every reserved CPU core-second and memory megabyte-second into four mutually exclusive waste classes or utilized consumption under exact integer conservation, generates safety-guarded resource limit recommendations, replays traces through an EASY-backfill scheduler simulator across counterfactual scenarios calibrated against real queue wait times, and writes reproducible reports.
+
+### 1.1 System Goals
+
+- Turn an accounting trace export into a ranked reclaim report and counterfactual queue simulation via a single CLI command (`rcwa run`).
+- Enforce four formal system guarantees, each verified by dedicated automated test suites:
+  - **Guarantee G1 (Conservation)**: For every evaluated job and across trace totals, `reserved = used + waste + unattributed` holds without double counting or floating-point rounding drift in integer core-seconds and megabyte-seconds.
+  - **Guarantee G2 (Safety)**: Recommended memory never falls below observed peak RSS; cohorts exhibiting `OUT_OF_MEMORY` terminations strictly escalate memory and contribute zero reclaimable GB-hours; non-OOM cohorts below `min_samples` receive no reductions or resource changes.
+  - **Guarantee G3 (Determinism)**: Identical input traces, cluster definitions, and policy configurations yield byte-identical Markdown, JSON, CSV, and Parquet outputs.
+  - **Guarantee G4 (Simulator Validity)**: Every eligible job schedules once per scenario, never before its submission timestamp, and node CPU/memory limits are never exceeded at any simulated timestamp.
+- Measure and report: reclaimable core-hours and GB-hours as shares of the trace, per-class recall and precision against planted synthetic ground truth, simulated median and P95 wait-time shifts per scenario, historical baseline calibration error, attribution coverage, single-process ingest and simulation throughput, and peak resident memory.
+
+### 1.2 Explicit Non-Goals
+
+The following are outside system scope:
+- Live scheduler plugins, SPANK hooks, or dynamic in-flight rescheduling.
+- GPU utilization waste attribution (`req_gpus` and `alloc_gpus` are ingested from TRES fields and preserved in the canonical table, not classified as GPU waste).
+- Switch/rack network topology, job preemption, multi-factor fair-share decay, and dependency DAG modeling inside the discrete-event simulator.
+- Graphical or web user interfaces.
+- External neural or ML prediction models and outbound telemetry.
+
+### 1.3 Engineering Constraints
+
+- **Pinned Dependencies**: Exact runtime versions pinned in [`pyproject.toml`](../pyproject.toml) (`polars==1.14.0`, `pyarrow==18.1.0`, `numpy==2.1.3`, `pydantic==2.10.3`, `typer==0.15.1`, `pyyaml==6.0.2`). Development dependencies pinned to `pytest==8.3.3`, `pytest-cov==6.0.0`, `hypothesis==6.120.0`, `ruff==0.8.2`, `pyright==1.1.390`. No external telemetry or network clients.
+- **Offline Hermetic Testing**: Tests never require internet connectivity; trace downloads are isolated to `make data` storing gitignored workloads under `data/raw/`.
+- **Single-Process Execution**: Tabular processing executes in-process using Polars and PyArrow without external worker daemons or relational server processes.
+- **Prohibited Vocabulary**: The nine excluded promotional/vague terms checked by [`tests/unit/test_forbidden_words.py`](../tests/unit/test_forbidden_words.py) are barred from source code, comments, tests, configuration files, and documentation.
 
 ---
 
-## 1. Role and working rules
+## 2. Inputs and Canonical Job Record
 
-You are building a small, self-contained, open-source Python repository that reads batch-scheduler accounting data from a research compute cluster, attributes wasted CPU and memory to four causes, produces a ranked list of what can be reclaimed and how, and simulates the effect of the recommendations on queue wait before anyone changes a limit. The readers are engineers who run research clusters at quantitative trading firms. The repository is a showcase of engineering judgment: conservation guarantees, measured numbers, explicit assumptions, and documented trade-offs matter more than feature count.
+### 2.1 Slurm `sacct` Export
 
-Rules that apply to every phase:
+Accepted via pipe-delimited (`-P`) `sacct` exports with megabyte memory units (`--units=M`):
 
-1. Work in the phases of section 14, in order. After each phase, run the full test suite, then stop and report. Do not begin the next phase without confirmation.
-2. Never fabricate a number. README result cells stay `TBD` until `make bench` has produced them on the machine named in the README. Statistics about a trace come from code you ran on it. If a command fails, report the failure and its output.
-3. Never reference any company's internal systems, metrics, code, or data. Public traces and generated traces only.
-4. Do not add a dependency outside section 11 without stopping to ask. Pin exact versions.
-5. No network access in tests. CI runs on committed synthetic fixtures only. Downloads happen only in `make data`.
-6. Small commits with imperative messages naming what changed and why. No squashing, no history rewriting.
-7. Each decision in section 12 gets an ADR in `docs/adr/` (context, options, decision, measured or expected cost). Decisions not listed there get an ADR too and a mention in the phase report.
-8. Maintain code documentation: verify every module and function upon review.
-9. Prefer plain code over frameworks. One repository, one `make` target per task, runs on a laptop. One language (Python). If a performance target in section 9 is missed, stop and report before proposing a compiled component.
-10. When the specification is ambiguous, pick the option that keeps a guarantee checkable by a test, record it in `docs/DECISIONS.md`, and continue.
-
-## 2. Project summary
-
-Research clusters reserve CPU cores and memory per job from what users request, not from what jobs use. Four causes separate reservation from use: memory requested far above the job's peak resident size, cores reserved while the job runs mostly single-threaded, work lost to jobs that fail or time out and are resubmitted, and successful jobs that recompute a result another job already produced from the same inputs. This kit ingests scheduler accounting records (Slurm `sacct` exports and Standard Workload Format traces in v1), partitions every reserved core-hour and gigabyte-hour into exactly one of those four classes or "used", ranks groups of jobs by what is reclaimable, recommends right-sized requests with safety guardrails, and replays the trace through a scheduler simulator to report the change in queue wait and throughput if the recommendations were applied.
-
-## 3. Goals and non-goals
-
-Goals:
-
-- One command turns an accounting export into a report with a ranked reclaim list.
-- Four guarantees, each enforced by a named test and stated in the README: (G1) conservation — for every job, reserved resources equal used plus the attributed waste, with no double counting; (G2) safety — no memory recommendation below the group's observed peak times a safety factor, no decrease for a group that had an out-of-memory kill, no recommendation for a group below the minimum sample size; (G3) determinism — identical inputs produce byte-identical outputs; (G4) simulator validity — every job is scheduled exactly once per scenario, never before its submit time, never above node capacity.
-- Measured numbers: reclaimable core-hours and GB-hours as a share of the trace; per-class recall and precision against planted ground truth; simulated median and p95 queue-wait change per scenario; simulator calibration error against the trace's real wait times; attribution coverage; ingest and simulation throughput; peak memory.
-
-Non-goals (do not build): a scheduler plugin or live rescheduling; GPU utilization attribution (GPU counts are ingested and reported but not attributed); node topology, preemption, or fair-share modeling in the simulator; a web UI; any external model-based or neural component; Kubernetes and Ray adapters are optional Phase 8 work.
-
-## 4. Repository layout
-
-```
-research-cluster-waste-attributor/
-  README.md
-  LICENSE                      Apache-2.0
-  pyproject.toml               license = "Apache-2.0"; pinned deps; console scripts `rcwa`, `rcwa-wrap`
-  Makefile                     targets in section 10
-  Dockerfile                   python:3.12-slim; runs `make test` by default
-  .github/workflows/ci.yml     lint, typecheck, tests with coverage gate, bench smoke
-  rcwa/
-    __init__.py
-    cli.py                     typer app
-    config.py                  Pydantic models: policy, cluster spec, simulator settings
-    model.py                   canonical job record (Arrow schema + Pydantic)
-    adapters/
-      sacct.py                 Slurm sacct export parser (pipe-delimited)
-      swf.py                   Standard Workload Format parser
-      k8s.py                   Phase 8, optional
-      ray.py                   Phase 8, optional
-    normalize.py               unit, time, state, array-job and step roll-up
-    attribute.py               the four waste classes and the conservation partition
-    groups.py                  job grouping (user, account, partition, command hash)
-    recommend.py               right-sizing with guardrails
-    recompute.py               duplicate detection from declared input hashes
-    retries.py                 failure and retry chain detection
-    simulate.py                EASY-backfill cluster simulator and scenarios
-    calibrate.py               simulator calibration against real waits
-    report.py                  Markdown, JSON, CSV outputs
-    wrap.py                    `rcwa-wrap`: records declared input hashes for a job
-    synth.py                   synthetic trace generator with planted waste
-  policies/default.yaml
-  clusters/example.yaml
-  data/                        gitignored: raw/, out/, results/
-  tests/  unit/  property/  golden/  fixtures/
-  bench/  run.py  hardware.py  results/
-  docs/   SPEC.md  DECISIONS.md  DATA.md  adr/
-```
-
-## 5. Inputs and canonical job record
-
-### 5.1 Slurm `sacct` export
-
-Document the export command in the README and accept its output as input:
-
-```
+```bash
 sacct -a -P --units=M -S <start> -E <end> \
   --format=JobIDRaw,JobID,User,Account,Partition,QOS,JobName,Submit,Eligible,Start,End,Elapsed,State,ExitCode,\
 ReqCPUS,AllocCPUS,ReqMem,MaxRSS,AveRSS,TotalCPU,CPUTimeRAW,ReqTRES,AllocTRES,NodeList,Comment,SubmitLine
 ```
 
-Parser requirements, each with a test:
+Parser specifications:
+- Pipe-delimited with a header row; optional empty fields resolve to `null`. Unknown extra columns emit a `UserWarning` and are ignored without failing ingestion.
+- Step rows (`12345.batch`, `12345.0`, `12345.extern`) roll up to the parent row (`12345`): `max_rss_mb` takes the maximum across steps; `cpu_time_used_s` sums `TotalCPU` across steps while excluding `.extern*` system overhead steps.
+- Array jobs (`12345_7`) and heterogeneous pack components (`12345+0`) ingest as independent records with `parent_job_id` populated.
+- Duration parsing accepts `D-HH:MM:SS`, `HH:MM:SS`, `MM:SS.mmm`, `SS.mmm`, and raw seconds.
+- `ReqMem` parsing converts `K`/`M`/`G`/`T`/`P` suffixes and scope flags (`c` per CPU multiplied by `alloc_cpus`; `n` per node multiplied by `nodes`), mapping `?`/`Unknown` to `null`.
+- State normalization strips suffixes (`CANCELLED by <uid>`, trailing `+`) and maps to the 10-state canonical enum.
+- `ReqTRES` and `AllocTRES` extract CPU, node, memory, and GPU (`gres/gpu`, typed GPU, or `gpu`) counts.
+- `Comment` (`RCWA_INPUT_HASH=<hex>`) and `$RCWA_DIR/<job_id>.json` sidecars provide declared input and command hashes.
 
-- Pipe-delimited with a header; fields may be empty. Unknown extra columns are ignored with a warning.
-- Steps (`12345.batch`, `12345.0`, `12345.extern`) carry `MaxRSS`, `AveRSS`, and `TotalCPU`; the parent row carries the allocation. Roll steps up to the job: `max_rss_mb = max over steps`, `cpu_time_used_s = sum of TotalCPU over steps excluding .extern`.
-- Array jobs `12345_7` and heterogeneous job components: treat each as a job; record `parent_job_id`.
-- `Elapsed` and `TotalCPU` formats: `D-HH:MM:SS`, `HH:MM:SS`, `MM:SS.mmm`.
-- `ReqMem` forms: `4000M`, `4000Mc` (per CPU; multiply by allocated CPUs), `4000Mn` (per node; multiply by nodes), `?`; with `--units=M` values are in MB. Handle `G` and `K` suffixes too.
-- `State` strings include qualifiers (`CANCELLED by 1234`); map to the canonical set below. `OUT_OF_MEMORY` is its own state.
-- `ReqTRES` and `AllocTRES` such as `cpu=8,mem=32000M,node=1,billing=8,gres/gpu=2`: parse GPU counts.
-- `Comment` may hold `RCWA_INPUT_HASH=<hex>` written by `rcwa-wrap` (section 5.5).
+### 2.2 Standard Workload Format (SWF)
 
-### 5.2 Standard Workload Format (SWF)
+Parses 18 whitespace-separated columns (plus `.swf.gz` gzip compression) and semicolon header pragmas (`UnixStartTime`, `MaxProcs`, `MaxNodes`, `Note`):
+- Missing `-1` sentinels in runtime, wait, memory, CPU, group, executable, queue, or partition fields map to `null` or zeroed duration bounds without corrupting statistical percentiles.
+- Status codes map deterministically: `1 -> COMPLETED`, `0 -> FAILED`, `5 -> CANCELLED`, others -> `OTHER`.
+- Per-processor memory (`used_mem`, `req_mem` in KB/proc) multiplies by `alloc_cpus` and divides by `1024` (rounded integer MB) for cluster-total MB; `avg_cpu` multiplies by `alloc_cpus` for total CPU seconds.
+- `executable number` populates `command_hash`. Because SWF lacks input file tracking, Class 4 recomputation is explicitly marked `"not available"` and never inferred heuristically.
 
-Parse the 18 whitespace-separated fields: job number, submit time, wait time, run time, allocated processors, average CPU time used, used memory (KB per processor), requested processors, requested time, requested memory (KB per processor), status, user id, group id, executable number, queue number, partition number, preceding job number, think time. Honor the header's `UnixStartTime`, `MaxProcs`, `MaxNodes`, and `Note` lines; record them in `docs/DATA.md` output for each trace. Missing values are `-1`. Status: 1 completed, 0 failed, 5 cancelled, others as documented in the header. Memory is per processor: multiply by allocated processors for the job total. `executable number` becomes `command_hash`. SWF has no declared inputs, so recomputation attribution is reported as "not available" for SWF traces, never estimated.
+### 2.3 Canonical Schema (27 Fields)
 
-### 5.3 Canonical job record (Arrow schema and Pydantic model)
+Defined in [`rcwa/model.py`](../rcwa/model.py) across Polars (`POLARS_CANONICAL_SCHEMA`), PyArrow (`CANONICAL_ARROW_SCHEMA`), and Pydantic (`CanonicalJobRecord`):
 
-```
-job_id: string                 parent_job_id: string | null       source: string (sacct | swf | k8s | ray)
-user: string                   account: string | null             partition: string | null
-job_name: string | null        command_hash: string | null        input_hash: string | null
-submit_time: timestamp[s,UTC]  start_time: timestamp[s,UTC] | null  end_time: timestamp[s,UTC] | null
-wait_s: int64                  run_s: int64
+```text
+job_id: string                  parent_job_id: string | null     source: string ("sacct" | "swf")
+user: string                    account: string | null           partition: string | null
+job_name: string | null         command_hash: string | null      input_hash: string | null
+submit_time: timestamp[UTC]     start_time: timestamp[UTC]|null  end_time: timestamp[UTC]|null
+wait_s: int64                   run_s: int64
 state: enum {COMPLETED, FAILED, TIMEOUT, OUT_OF_MEMORY, NODE_FAIL, CANCELLED, PREEMPTED, RUNNING, PENDING, OTHER}
 exit_code: int32 | null
-req_cpus: int32                alloc_cpus: int32                  cpu_time_used_s: float64 | null
-req_mem_mb: int64 | null       max_rss_mb: int64 | null
-req_gpus: int32                alloc_gpus: int32
-nodes: int32                   node_list: string | null
-reserved_core_s: int64 = alloc_cpus * run_s
-reserved_mem_mb_s: int64 = req_mem_mb * run_s
+req_cpus: int32                 alloc_cpus: int32                cpu_time_used_s: float64 | null
+req_mem_mb: int64 | null        max_rss_mb: int64 | null
+req_gpus: int32                 alloc_gpus: int32
+nodes: int32                    node_list: string | null
+reserved_core_s: int64          reserved_mem_mb_s: int64 | null
 ```
 
-Rows with `state in {RUNNING, PENDING}` are excluded from attribution and counted in the report's data-quality section. Rows with `run_s = 0` are kept (early failures) and attributed to class 3 with zero consumption.
+Exclusion and retention rules:
+- Rows with `state` in `{"RUNNING", "PENDING"}` are excluded prior to waste attribution and reported under Data Quality exclusions.
+- Terminated rows with `run_s == 0` are retained and classified under Class 3 (`early_failure`) with zero reservation and zero consumption.
 
-### 5.4 Grouping
+### 2.4 Declared Inputs Wrapper (`rcwa-wrap`)
 
-A group key is configurable in the policy; default `(user, command_hash or job_name)`. Secondary roll-ups by `account` and `partition`. Groups below `min_samples` (default 5) receive no recommendation.
-
-### 5.5 Declared inputs: `rcwa-wrap`
-
-Recomputation detection needs to know what a job read. Provide a wrapper:
-
-```
+```bash
 rcwa-wrap --inputs data/a.parquet,config.yaml --big-file-mode size_mtime -- python train.py --lr 0.01
 ```
 
-It hashes each declared input (sha256 of contents by default; `size_mtime` mode for files over a configurable size), combines them with the normalized command line into `input_hash`, and records it in two places when available: `scontrol update JobId=$SLURM_JOB_ID Comment=RCWA_INPUT_HASH=<hex>` and a sidecar `$RCWA_DIR/<job_id>.json`. The adapter reads either. The wrapper then executes the command and exits with its exit code. Tests cover hashing, normalization of the command line (strip absolute path prefixes configurable by regex, sort `--flag=value` pairs), and failure modes (missing input file: record `missing` and continue, never block the job).
+- Computes SHA-256 content hashes over declared paths (or `hash("<basename>:<bytes>:<int_mtime>")` when `big_file_mode == "size_mtime"` and file size exceeds `--big-file-threshold`, default `104857600` bytes).
+- Normalizes the wrapped command line by stripping matching regex path prefixes (`--regex-strip`), keeping executable first, sorting `-` / `--` flags lexicographically, and preserving positional arguments in order.
+- Missing declared files record `"missing"` in the sidecar and hash without blocking command execution.
+- Persists checksums via `scontrol update JobId=$SLURM_JOB_ID Comment=RCWA_INPUT_HASH=<hex>` when `SLURM_JOB_ID` is present and writes `$RCWA_DIR/<job_id>.json` when `RCWA_DIR` is set.
+- Executes the command directly and propagates its exact exit code (`127` on `FileNotFoundError`, `126` on `PermissionError`).
 
-## 6. Waste attribution
+---
 
-### 6.1 The four classes and the conservation partition
+## 3. Waste Attribution and Grouping Specification
 
-For each job, partition `reserved_core_s` and `reserved_mem_mb_s` with this precedence, applied once, so that no second of reservation lands in two classes:
+### 3.1 Single-Pass Four-Class Precedence Cascade
 
-1. Class 3, failed and retried work: if `state in {FAILED, TIMEOUT, OUT_OF_MEMORY, NODE_FAIL, PREEMPTED}` or (`CANCELLED` and `run_s > 0`), the job's entire reservation in both dimensions is class 3. Sub-labels: `oom`, `timeout`, `early_failure` (run_s ≤ 60), `other_failure`, `cancelled_after_start`, `node_fail`. Retry chains: a later job by the same user with the same `command_hash` (or `job_name` when no hash) submitted within `retry_window` (default 24 h) after a failed job is marked `retry_of`; the chain's total cost is reported, and the retried job itself is attributed normally.
-2. Class 4, redundant recomputation: if `state = COMPLETED` and another `COMPLETED` job with the same `(command_hash, input_hash)` ended earlier within `recompute_window` (default 30 days), the later job's entire reservation in both dimensions is class 4 (`confidence = declared_inputs`). When `input_hash` is missing and only `command_hash` matches, the job is listed under `possible_recompute` with `confidence = command_only` and is NOT counted in class 4 totals.
-3. Class 2, idle reserved CPU (core dimension): `idle_core_s = max(0, reserved_core_s − cpu_time_used_s)`; `used_core_s = reserved_core_s − idle_core_s`. If `cpu_time_used_s` is null, the job's core reservation is labeled `unattributed_missing_cpu_time` and counted in coverage, not in class 2.
-4. Class 1, memory over-request (memory dimension): `over_mem_mb_s = max(0, req_mem_mb − max_rss_mb) × run_s`; `used_mem_mb_s = reserved_mem_mb_s − over_mem_mb_s`. Null `max_rss_mb` → `unattributed_missing_rss`.
+For each non-active job, `reserved_core_s` and non-null-filled `reserved_mem_mb_s` are partitioned in strict precedence order:
 
-G1 test: for every job and each dimension, `reserved = used + class1_or_2 + class3 + class4 + unattributed` exactly, in integer seconds and MB-seconds. Totals in the report are sums of these per-job values; a test recomputes the totals from the per-job table.
+1. **Class 3 (Failed & Retried Work)**: Jobs with `state` in `{"FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED"}`, `state == "CANCELLED"` with `run_s > 0`, or `run_s == 0` assign 100% of core and memory reservations to Class 3 and receive one sub-label (`early_failure` checked first when `run_s <= 60`, then `oom`, `timeout`, `node_fail`, `cancelled_after_start`, `other_failure`). Causal resubmissions by the same `user` and task signature submitted within `retry_window_s` (default `86400`) after failure completion link 1-to-1 to the earliest eligible resubmission via `retry_of`, resolving `retry_chain_id`, `retry_count`, and cumulative chain cost.
+2. **Class 4 (Redundant Recomputation)**: Remaining `COMPLETED` jobs (from non-SWF sources) matching an earlier `COMPLETED` job on both `(command_hash, input_hash)` within `recompute_window_s` (default `2592000` seconds = 30 days) assign 100% of core and memory reservations to Class 4 (`recompute_confidence = "declared_inputs"`). Matches lacking `input_hash` receive `possible_recompute = True` (`recompute_confidence = "command_only"`) and assign `0` to Class 4 totals.
+3. **Class 2 (Idle Reserved CPU)** & **Class 1 (Memory Over-Request)**: Remaining runs partition each resource dimension independently:
+   - Core: If `cpu_time_used_s` is `null`, assign `reserved_core_s` to `unattributed_core_s`. Otherwise, `class2_idle_core_s = max(0, reserved_core_s - max(0, int(round(cpu_time_used_s))))` and `used_core_s = reserved_core_s - class2_idle_core_s`.
+   - Memory: If `req_mem_mb` is `null` or `reserved_mem_mb_s == 0`, all memory columns equal `0`. If `max_rss_mb` is `null`, assign `reserved_mem_mb_s` to `unattributed_mem_mb_s`. Otherwise, `class1_over_mem_mb_s = min(reserved_mem_mb_s, max(0, req_mem_mb - max_rss_mb) * run_s)` and `used_mem_mb_s = reserved_mem_mb_s - class1_over_mem_mb_s`.
 
-### 6.2 Ranked reclaim list
+### 3.2 Grouping and Ranked Reclaim List
 
-For each group: reserved and used core-hours and GB-hours; waste per class; share of cluster total; recommended action (section 7); confidence; evidence (five job ids with the largest waste). Sorted by reclaimable core-hours plus a configurable memory weight (`mem_weight_core_hours_per_gb_hour`, default from the cluster spec's core-to-memory ratio). Also roll-ups by user, account, partition.
+- Default primary group key: `(user, job_name or command_hash)` serialized as `"{user}/{task}"`, fallback `"unknown"`. Secondary rollups compute by `account`, `partition`, and `user`.
+- Composite rank score: `reclaim_score = reclaimable_core_hours + mem_weight * reclaimable_gb_hours` (`mem_weight` default `0.25`).
+- OOM groups zero `reclaimable_gb_hours` so hazardous memory capacity is never ranked as savings.
+- Top-5 evidence jobs per group are extracted ordered by `(-job_waste_score, job_id)`.
 
-## 7. Recommendations with guardrails
+---
 
-- Memory: recommended `req_mem_mb = ceil(p99(max_rss_mb over the group's COMPLETED jobs) × safety_factor)` with `safety_factor` default 1.2; never below `max(max_rss_mb)` observed in the group across all states; if any job in the group has `state = OUT_OF_MEMORY` in the window, the recommendation direction is `increase` to `ceil(max observed × 1.5)` and the group is excluded from reclaimable memory totals.
-- CPU: recommended `cpus = clamp(ceil(p99(cpu_time_used_s / run_s) × safety_factor), 1, alloc_cpus)`; groups whose jobs have `run_s < 120` get no CPU recommendation (utilization is unreliable on short jobs).
-- Timeouts: recommend `time_limit = ceil(p99(run_s of COMPLETED jobs) × 1.5)` for groups with timeouts.
-- Early failures: no resource recommendation; the report lists the group with its failure share and sample exit codes.
-- Recomputation: recommend a result cache keyed by `(command_hash, input_hash)` for groups where class 4 exceeds a threshold; report the hit rate the cache would have had.
-- G2 tests: for randomly generated groups (Hypothesis), the memory recommendation is never below the observed maximum times the safety factor; OOM groups never receive a decrease; groups below `min_samples` receive nothing.
+## 4. Rightsizing Recommendations Specification
 
-## 8. Simulator
+- **Sample Floor & OOM Priority**: Non-OOM groups with fewer than `min_samples` (default `5`) jobs emit `None` across recommendations with action `below_sample_floor`. Any group containing `OUT_OF_MEMORY` bypasses `min_samples` and escalates memory to `ceil(max(oom_base) * oom_multiplier)` (default `1.5`), where `oom_base` is `observed_max_rss`, falling back to max `req_mem_mb`, falling back to `4000`, always floored at `observed_max_rss`, with `recommendation_direction = "increase"` and `recommendation_action = "oom_increase_mem"`.
+- **Memory**: For non-OOM cohorts, `recommended_req_mem_mb = max(ceil(P99(max_rss_mb | COMPLETED) * 1.2), observed_max_rss)` across all states (falling back to `ceil(observed_max_rss * 1.2)` if no completed job records RSS).
+- **CPU**: `recommended_cpus = clamp(ceil(P99(cpu_time_used_s / run_s | COMPLETED) * 1.2), 1, observed_max_cpus)`. Groups whose median runtime (or all runtimes) is strictly under `min_run_s` (default `120` s) emit `recommended_cpus = None`.
+- **Timeout**: Groups with `TIMEOUT` incidents recommend `recommended_time_limit_s = ceil(P99(run_s | COMPLETED) * 1.5)` (falling back to all-state max runtime * `1.5` or `3600` s).
+- **Early Failures & Result Caching**: Cohorts exhibiting early failures (`run_s <= 60`) list failure share and sample exit codes; cohorts where `group_waste_share >= threshold`, `trace_waste_share >= threshold`, or `cache_hits > 0` emit result cache hit-rate recommendations.
 
-- Model: a cluster of `N` identical nodes with `cores_per_node` and `mem_mb_per_node` (from `clusters/<name>.yaml`, or inferred from the trace as the maximum allocation seen, with the inference reported). Jobs arrive at `submit_time`, request `(cpus, mem_mb, nodes)`, and run for `run_s`. Scheduling: FCFS with EASY backfill (a later job may start early if it does not delay the first queued job's reservation), using the trace's `requested time` when present and `run_s × 1.2` otherwise. Deterministic: ties broken by `(submit_time, job_id)`; no randomness.
-- Scenarios, each a full replay: `baseline` (original requests); `mem_rightsized`; `cpu_rightsized` under two runtime models, `none` (runtime unchanged) and `proportional` (runtime scales by `old_cpus / new_cpus` when the job's measured utilization exceeded the new allocation); `cache_dedup` (class 4 jobs removed); `all`. Each scenario reports median and p95 wait, makespan, core and memory utilization, and jobs completed per simulated day.
-- Calibration (`rcwa calibrate`): run `baseline` on a real trace and compare simulated wait per job with the trace's recorded wait. Report median absolute error and the Spearman correlation. The README states the calibration error next to every scenario result, because a scenario delta is only as trustworthy as the baseline fit.
-- G4 tests: every job appears once in every scenario's schedule; `sim_start ≥ submit_time`; per-timestep capacity checks on a sampled set of timestamps; a brute-force checker on small traces.
-- Performance target: 1,000,000 jobs through `baseline` in under 15 minutes on a laptop in pure Python with a heap-based event loop and a per-node free-capacity index. If the target is missed, report the profile and stop.
+---
 
-## 9. Benchmark
+## 5. Simulator, Calibration, and Reporting Specification
 
-`make bench SIZE=1M RUNS=5 SEED=1` runs the pipeline on a synthetic trace with planted waste and writes `bench/results/bench.csv` and `bench/results/bench.md`:
+- **Cluster Model**: Homogeneous YAML (`cluster_name`/`name`, `node_count`/`nodes`, `cores_per_node`, `mem_mb_per_node`), partitioned YAML (`partitions.<name>.{nodes, cores_per_node, mem_mb_per_node}`), or automatic inference from trace peaks (`min 16 nodes, 32 cores/node, 131072 MB/node`).
+- **Scheduling Policy**: Deterministic FCFS ordered by `(submit_time, job_id)` with single shadow reservation at queue head and bounded `max_test = 50` non-delaying EASY backfill (satisfying either `current_time + expected_walltime <= res_time` or disjoint nodes relative to the head reservation, where `expected_walltime = req_time_s` if positive else `max(1, ceil(run_s * 1.2))`). Oversized jobs exceeding per-node hardware envelope clamp to node bounds.
+- **Six Replay Scenarios**: `baseline`, `mem_rightsized`, `cpu_rightsized_none`, `cpu_rightsized_proportional`, `cache_dedup`, and `all`.
+- **Calibration**: Evaluates `baseline` simulated wait vs recorded `wait_s` using `median_absolute_error_s`, `spearman_rank_correlation`, `mean_absolute_error_s`, and `p95_absolute_error_s`.
+- **Reports**: Deterministic JSON (`_round_floats(..., digits=6)` with sorted keys), Markdown (with conditionals hiding empty early-failure or zero-hit cache tables and declaring SWF Class 4 `"not available"`), and CSV reclaim tables.
 
-| Metric | How measured |
-| --- | --- |
-| Reclaimable core-hours and GB-hours as share of trace | from the per-job attribution table |
-| Per-class recall and precision | planted ground truth from `rcwa synth` |
-| Conservation check | G1 over the whole trace; must hold exactly |
-| Guardrail violations | count; must be 0 |
-| Simulated median and p95 wait change per scenario | `simulate` vs `baseline` |
-| Simulator calibration error | on the two real SWF traces (`make data`): median absolute wait error, Spearman correlation |
-| Ingest throughput | jobs/s for sacct and SWF parsers, single process |
-| Simulation throughput | jobs/s for `baseline` |
-| Peak resident memory | max RSS of the process tree |
-| Attribution coverage | share of reserved core-s and mem-s attributed to a class or to used, vs unattributed |
+---
 
-5 runs; median and min–max. `bench/hardware.py` records CPU model, cores, RAM, OS, Python and library versions, and the git commit; the README copies this block verbatim. CI runs `make bench-smoke` (`SIZE=20k RUNS=1`) and asserts completion, G1 exact, zero guardrail violations.
+## 6. CLI, Makefile, and Benchmark Interface
 
-## 10. Makefile targets
-
-```
-make setup        venv + pinned deps
-make lint         ruff check, ruff format --check
-make typecheck    pyright
-make test         pytest with coverage gate (85% lines)
-make data         download two SWF traces chosen from the Parallel Workloads Archive index; record URLs, header notes, and the archive's usage conditions in docs/DATA.md
-make synth        rcwa synth --size $(SIZE) --seed $(SEED) --faults default
-make run          rcwa ingest + attribute + recommend + simulate + report on $(TRACE)
-make calibrate    rcwa calibrate on the real traces
-make bench        full benchmark (SIZE, RUNS, SEED)
-make bench-smoke  SIZE=20k RUNS=1
-make goldens      regenerate golden reports (shows a diff)
-make docker       build and run `make test` in the image
-```
-
-## 11. Allowed dependencies (pin exact versions)
-
-Runtime: `polars`, `pyarrow`, `numpy`, `pydantic>=2`, `typer`, `pyyaml`. Development: `pytest`, `pytest-cov`, `hypothesis`, `ruff`, `pyright`. `duckdb` only if you measure that a Polars aggregation misses the throughput target, with the measurement recorded. Nothing else without asking. No external model clients. No telemetry.
-
-## 12. ADRs to write
-
-1. `001-conservation-partition.md`: precedence failed → duplicate → idle CPU / over-requested memory, each second attributed once. Optimizes exact, auditable totals; costs visibility into idle CPU inside failed jobs (listed as a sub-label, not a class).
-2. `002-declared-inputs-for-recomputation.md`: hash declared inputs through `rcwa-wrap`, never trace execution. Optimizes applicability to any scheduler and zero overhead on jobs; costs missed recomputation for jobs without declarations, reported as coverage.
-3. `003-percentile-rightsizing-with-guardrails.md`: p99 × 1.2, minimum samples, OOM groups only increase. Optimizes safety of recommendations; costs reclaimable capacity left unclaimed, quantified as the gap between p99 and p50 sizing.
-4. `004-easy-backfill-simulator.md`: FCFS plus EASY backfill on identical nodes, calibrated against real waits. Optimizes a checkable baseline; ignores topology, preemption, fair share, GPUs; the calibration error is the stated bound on scenario deltas.
-5. `005-single-process-polars.md`: one process, Polars. Optimizes one-command reproducibility; bounds trace size by memory, measured and reported.
-
-## 13. README requirements
-
-Sections, in order, in short plain sentences:
-
-1. Title and one sentence on what the kit does.
-2. Status line: `design complete` → `benchmarked on <hardware>` once numbers exist.
-3. Results table (section 9) with `TBD` until measured, plus the hardware block.
-4. Quick start: the export command for `sacct`, `make data` for public traces, `make run`.
-5. Problem: three or four sentences on why reserved and used resources diverge on research clusters and why changing limits without a simulation is risky.
-6. How it works: pipeline diagram (ASCII), canonical record, the four classes and the precedence rule, grouping, recommendations and guardrails, `rcwa-wrap`, the simulator and its scenarios, calibration.
-7. Guarantees: G1–G4 with the names of the tests that enforce them.
-8. Benchmark method.
-9. Design decisions: a table of the five ADRs with "optimizes" and "costs" columns.
-10. Limits and follow-ups: the non-goals, and the simulator's known omissions.
-11. Related work: Slurm `sreport` and `sacct` reporting, XDMoD, Kubecost (state only what their public documentation says; omit anything unsure). One sentence on the differentiator: a conservation-checked attribution across four causes, recomputation detection from declared inputs, and a calibrated simulation of the recommendations in one tool.
-12. Data: the two public traces with URLs and usage conditions from `docs/DATA.md`; what is committed (synthetic fixtures only).
-13. License: Apache-2.0.
-
-Do not use the words "simply", "robust", "seamless", "best", "optimal", "clean", "minimal", "powerful", or "cutting-edge" anywhere in the repository.
-
-## 14. Phased delivery
-
-Each phase ends with all tests green, lint and typecheck passing, a commit, and a report (section 15).
-
-- **Phase 0 — Scaffold.** Layout, `pyproject.toml` (pinned deps, `license = "Apache-2.0"`, console scripts), `LICENSE` with the current year and the owner's name (ask if not given), Makefile, Dockerfile, CI workflow, README skeleton with `TBD` placeholders, `docs/DECISIONS.md`, `docs/DATA.md` (empty template), ADR files with titles, `policies/default.yaml`, `clusters/example.yaml`. Acceptance: `make test` passes on a trivial test; CI config validates.
-- **Phase 1 — Adapters and canonical record.** `model.py`, `normalize.py`, `adapters/sacct.py`, `adapters/swf.py`, fixtures covering every parser requirement in section 5. Acceptance: all parser tests pass; a 100,000-row synthetic sacct export parses at a measured jobs/s you report.
-- **Phase 2 — Attribution.** `attribute.py`, `groups.py`, `retries.py`, G1 test. Acceptance: conservation holds exactly on fixtures and on a 20k synthetic trace; per-job and group tables written as Parquet and CSV.
-- **Phase 3 — Recommendations.** `recommend.py` with guardrails, G2 property tests. Acceptance: Hypothesis finds no guardrail violation in 10,000 generated groups.
-- **Phase 4 — Recomputation.** `wrap.py` (`rcwa-wrap`), `recompute.py`, sidecar and Comment readers. Acceptance: planted duplicates are found with exact recall and precision; command-only matches are listed but not counted.
-- **Phase 5 — Simulator and calibration.** `simulate.py`, `calibrate.py`, G4 tests, brute-force checker on small traces. Acceptance: all scenarios run on the 20k trace; the 1M-job performance target is measured and reported (met or not).
-- **Phase 6 — Report.** `report.py`, ranked reclaim list, data-quality section, golden tests. Acceptance: golden reports render for the synthetic trace and for the SWF fixture; G3 determinism test passes (two runs, byte-identical outputs).
-- **Phase 7 — Synthetic generator, data, benchmark, ADRs, README.** `synth.py` with every planted-waste type and a ground-truth file; `make data` for two public SWF traces with `docs/DATA.md` filled from their headers and the archive's usage conditions; `bench/run.py`, `bench/hardware.py`; the five ADRs; README results filled only from `bench/results/` after the human confirms the run and the machine. Acceptance: `make bench-smoke` passes in CI; the 1M-job cells may remain `TBD` until the human runs them.
-- **Phase 8 (optional, only if asked).** `adapters/k8s.py` over a documented CSV schema (pod, owner job, requests, limits, max usage from a metrics export, phase, restarts) with a `kubectl`-based exporter script; `adapters/ray.py` over Ray job state exports; a Prometheus text-format exporter of the class totals.
-
-## 15. Phase report format
-
-At the end of each phase, report in this order and nothing else:
-
-1. Phase number and one line on what now works.
-2. Commands run with exit status; test count, coverage percentage, lint and typecheck status.
-3. Measured numbers produced in this phase, each with the command that produced it.
-4. Decisions made that were not in the spec, each with its `DECISIONS.md` entry.
-5. Open questions for the human, each with the default you will take if unanswered.
-6. The next phase's first three steps.
-
-## 16. Definition of done
-
-- `git clone`, `make setup`, `make test` pass on a fresh machine in under 10 minutes with no network beyond package installation.
-- `make data && make run TRACE=data/raw/<trace>.swf` produces a report with a ranked reclaim list and scenario table on a real public trace, with calibration error stated.
-- An `sacct` export in the documented format runs through the same command.
-- README results contain numbers only from `bench/results/` runs on the hardware named in the README.
-- G1–G4 are each enforced by a named test and described in the README.
-- Five ADRs exist with measured or stated costs; `docs/DATA.md` records trace sources and usage conditions; documentation records project configuration and decisions.
-- No fabricated figure, no employer reference, no banned word.
+- **CLI Entrypoints**: `rcwa` (`version`, `synth`, `ingest`, `attribute`, `recommend`, `simulate`, `calibrate`, `report`, `run`) and `rcwa-wrap`.
+- **Makefile Targets**: `all`, `setup`, `lint`, `typecheck`, `test`, `data`, `synth`, `run`, `calibrate`, `bench`, `bench-smoke`, `goldens`, `docker`.
+- **Benchmark Suite (`bench/run.py`)**: Evaluates ten metrics (reclaim shares, G1 conservation, G2 violations, per-class recall/precision against `.truth.parquet`, wait shifts, SWF calibration error, sacct/SWF/simulation throughput, peak RSS, and attribution coverage) alongside hardware telemetry captured by [`bench/hardware.py`](../bench/hardware.py).
